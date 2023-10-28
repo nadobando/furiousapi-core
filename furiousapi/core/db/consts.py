@@ -1,0 +1,1 @@
+ANNOTATIONS = "__annotations__"

@@ -1,0 +1,169 @@
+[build-system]
+build-backend = "poetry.core.masonry.api"
+requires = ["poetry-core"]
+
+[tool.autopep8]
+aggressive = 3
+# ignore = "E501,W6"  # or ["E501", "W6"]
+in-place = true
+max_line_length = 120
+recursive = true
+
+[tool.bandit.assert_used]
+skips = ['**/test_*.py', '**/test_*.py']
+
+[tool.black]
+exclude = """
+(
+  /(
+      .eggs         # exclude a few common directories in the
+    | .git          # root of the project
+    | .hg
+    | .mypy_cache
+    | .tox
+    | .venv
+    | venv
+    | _build
+    | buck-out
+    | build
+    | dist
+  )/
+)
+"""
+include = '\.pyi?$'
+line-length = 120
+preview = true
+target-version = ['py39']
+
+[tool.coverage.report]
+exclude_lines = [
+  "if TYPE_CHECKING:",
+  "if __name__ == .__main__.:"
+]
+
+[tool.coverage.run]
+branch = true
+include = [
+  "*/furiousapi/*"
+]
+
+[tool.isort]
+profile = "black"
+
+[tool.mypy]
+check_untyped_defs = true
+disable_error_code = "no-redef"
+exclude = [
+  '.venv/**/*.py'
+]
+explicit_package_bases = true
+# strict = true
+plugins = "pydantic.mypy"
+
+[tool.poetry]
+authors = ["nadobando <7695172+nadobando@users.noreply.github.com>"]
+description = ""
+name = "furiousapi-core"
+packages = [
+  {include = "furiousapi"}
+]
+readme = "README.md"
+version = "0.1.0"
+
+[tool.poetry.dependencies]
+anyio = "^4.0.0"
+fastapi = "^0.97.0"
+pydantic = "^1.10.13"
+# core
+python = "^3.9.5"
+typing-extensions = "^4.8.0"
+
+[tool.poetry.group.dev.dependencies]
+coverage = "^7.1.0"
+greenlet = "^2.0.2"
+httpx = "^0.23.3"
+mypy = "^1.6"
+pre-commit = "^3.0.1"
+pytest = "^7.4.2"
+pytest-asyncio = "^0.20.3"
+pytest-cov = "^4.0.0"
+pytest-xdist = {version = "^3.2.1", extras = ["psutil"]}
+
+[tool.poetry.plugins]
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+warn_untyped_fields = true
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = [
+  "tests"
+]
+
+[tool.ruff]
+exclude = [
+  ".bzr",
+  ".direnv",
+  ".eggs",
+  ".git",
+  ".hg",
+  ".mypy_cache",
+  ".nox",
+  ".pants.d",
+  ".ruff_cache",
+  ".svn",
+  ".tox",
+  ".venv",
+  "__pypackages__",
+  "_build",
+  "buck-out",
+  "build",
+  "dist",
+  "node_modules",
+  "venv"
+]
+ignore = [
+  "D",
+  "ANN101",
+  "A003",
+  "B008",
+  "B905",
+  "COM",
+  "PLR0913",
+  "ANN003",
+  "ANN002",
+  "EM101",
+  "TRY003",
+  "ANN102",
+  "UP035",
+  "G004",
+  "EM102",
+  "I001",
+  "ANN401",
+  "TD",
+  "FIX002"
+]
+line-length = 120
+select = ["ALL"]
+target-version = "py38"
+
+[tool.ruff.flake8-annotations]
+mypy-init-return = true
+
+[tool.ruff.flake8-unused-arguments]
+ignore-variadic-names = true
+
+[tool.ruff.per-file-ignores]
+"furiousapi/core/api/controllers/base.py" = ["N804"]
+"furiousapi/core/api/controllers/mixins.py" = ["N805"]
+"furiousapi/core/controllers/base.py" = ["N804"]
+"furiousapi/core/db/fields.py" = ["N805"]
+# "furiousapi/core/db/mongo/models.py" = ["N804"]
+"furiousapi/core/db/metaclasses.py" = ["N804"]
+"tests/*" = ["ANN201", "S101", "DTZ001", "PLR0913"]
+
+[tool.ruff.pyupgrade]
+keep-runtime-typing = true
