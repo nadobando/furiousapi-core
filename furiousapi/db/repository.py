@@ -22,8 +22,8 @@ from typing import (
 from fastapi.params import Depends
 
 from furiousapi.core.config import get_settings
-from furiousapi.core.db import utils
 from furiousapi.core.types import TEntity
+from furiousapi.db import utils
 
 if sys.version_info >= (3, 10):
     from typing import TypeAlias
@@ -35,10 +35,10 @@ if TYPE_CHECKING:
 
     from pydantic import BaseModel
 
-    from furiousapi.core.db.fields import SortableFieldEnum
-    from furiousapi.core.pagination import AllPaginationStrategies
-    from furiousapi.core.responses import BulkResponseModel
+    from furiousapi.api.pagination import AllPaginationStrategies
+    from furiousapi.api.responses import BulkResponseModel
     from furiousapi.core.types import TModelFields
+    from furiousapi.db.fields import SortableFieldEnum
 
 
 class ModelMetaclass(Protocol):

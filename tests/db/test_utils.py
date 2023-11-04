@@ -4,8 +4,8 @@ from typing import List, Optional, Tuple
 import pytest
 from pydantic import BaseModel
 
-from furiousapi.core.db.fields import SortableFieldEnum
-from furiousapi.core.db.utils import (
+from furiousapi.db.fields import SortableFieldEnum
+from furiousapi.db.utils import (
     create_subset_model,
     get_model_fields,
     get_model_fields_enum,

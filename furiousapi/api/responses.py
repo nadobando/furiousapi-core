@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import typing
 from enum import Enum
-from typing import TYPE_CHECKING, Annotated, List, Literal, Optional, Union
+from typing import TYPE_CHECKING, Annotated, Any, Dict, List, Literal, Optional, Union
 
-from beanie import PydanticObjectId  # noqa: TCH002
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
 from starlette.responses import JSONResponse
@@ -18,9 +16,9 @@ class PartialModelResponse(JSONResponse):
         self,
         content: Optional[BaseModel],
         status_code: int = 200,
-        headers: typing.Optional[typing.Dict[str, str]] = None,
-        media_type: typing.Optional[str] = None,
-        background: typing.Optional[BackgroundTask] = None,
+        headers: Optional[Dict[str, str]] = None,
+        media_type: Optional[str] = None,
+        background: Optional[BackgroundTask] = None,
     ) -> None:
         content = jsonable_encoder(content, by_alias=True)
         super().__init__(content, status_code, headers, media_type, background)
@@ -37,7 +35,7 @@ class BulkCreateResponse(BaseModel):
 
 class BulkItemSuccess(BaseModel):
     status: Optional[Literal[BulkItemStatusEnum.OK]] = Field(default=BulkItemStatusEnum.OK)
-    id: Union[str, PydanticObjectId]
+    id: Any
 
 
 class BulkItemError(BaseModel):

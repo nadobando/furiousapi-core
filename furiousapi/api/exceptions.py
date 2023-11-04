@@ -2,24 +2,24 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
-from furiousapi.core.api import error_details
+from furiousapi.api import error_responses
 from furiousapi.core.exceptions import FuriousError
 
 
 class FuriousAPIError(HTTPException, FuriousError):
-    def __init__(self, details: error_details.HttpErrorDetails, headers: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(self, details: error_responses.HttpErrorResponse, headers: Optional[Dict[str, Any]] = None) -> None:
         HTTPException.__init__(self, status_code=details.status, detail=details.dict(by_alias=True), headers=headers)
 
 
 # 400
-class BadRequestHttpError(FuriousAPIError):
+class BadRequestError(FuriousAPIError):
     def __init__(
         self,
         message: str,
         headers: Optional[Dict[str, Any]] = None,
-        parameters: Optional[List[error_details.ErrorParameter]] = None,
+        parameters: Optional[List[error_responses.Parameter]] = None,
     ) -> None:
-        details = error_details.BadRequestHttpErrorDetails(
+        details = error_responses.BadRequestHttpErrorResponse(
             detail=message,
             parameters=parameters,
         )
@@ -27,10 +27,10 @@ class BadRequestHttpError(FuriousAPIError):
 
 
 # 401
-class UnauthorizedHttpError(FuriousAPIError):
+class UnauthorizedError(FuriousAPIError):
     def __init__(self, headers: Optional[Dict[str, Any]] = None) -> None:
         super().__init__(
-            details=error_details.UnauthorizedHttpErrorDetails(
+            details=error_responses.UnauthorizedHttpErrorDetails(
                 detail="Authentication details were not provided in request",
             ),
             headers=headers,
@@ -38,27 +38,27 @@ class UnauthorizedHttpError(FuriousAPIError):
 
 
 # 403
-class ForbiddenHttpError(FuriousAPIError):
+class ForbiddenError(FuriousAPIError):
     def __init__(
         self,
         message: str = "The token used is not allowed to make changes",
         headers: Optional[Dict[str, Any]] = None,
     ) -> None:
         super().__init__(
-            details=error_details.ForbiddenHttpErrorDetails(detail=message),
+            details=error_responses.ForbiddenHttpErrorDetails(detail=message),
             headers=headers,
         )
 
 
 # 404
-class ResourceNotFoundHttpError(FuriousAPIError):
+class ResourceNotFoundError(FuriousAPIError):
     def __init__(
         self,
         resource: str,
         headers: Optional[Dict[str, Any]] = None,
-        parameters: Optional[List[error_details.ErrorParameter]] = None,
+        parameters: Optional[List[error_responses.Parameter]] = None,
     ) -> None:
-        details = error_details.NotFoundHttpErrorDetails(
+        details = error_responses.NotFoundHttpErrorDetails(
             detail=f"The provided {resource} does not exist in our system",
             parameters=parameters,
         )
@@ -66,35 +66,35 @@ class ResourceNotFoundHttpError(FuriousAPIError):
 
 
 # 405
-class MethodNotAllowedHttpError(FuriousAPIError):
+class MethodNotAllowedError(FuriousAPIError):
     def __init__(self, headers: Optional[Dict[str, Any]] = None) -> None:
-        super().__init__(details=error_details.MethodNotAllowedHttpErrorDetails(), headers=headers)
+        super().__init__(details=error_responses.MethodNotAllowedHttpErrorDetails(), headers=headers)
 
 
 # 409
-class ConflictHttpError(FuriousAPIError):
+class ConflictError(FuriousAPIError):
     def __init__(
         self,
         message: str,
         headers: Optional[Dict[str, Any]] = None,
-        parameters: Optional[List[error_details.ErrorParameter]] = None,
+        parameters: Optional[List[error_responses.Parameter]] = None,
     ) -> None:
         super().__init__(
-            details=error_details.ConflictHttpErrorDetails(detail=message, parameters=parameters),
+            details=error_responses.ConflictHttpErrorDetails(detail=message, parameters=parameters),
             headers=headers,
         )
 
 
 # 422
-class UnprocessableEntityHttpError(FuriousAPIError):
+class UnprocessableEntityError(FuriousAPIError):
     def __init__(
         self,
         entity: str,
         headers: Optional[Dict[str, Any]] = None,
-        parameters: Optional[List[error_details.ErrorParameter]] = None,
+        parameters: Optional[List[error_responses.Parameter]] = None,
     ) -> None:
         super().__init__(
-            details=error_details.UnprocessableEntityHttpErrorDetails(
+            details=error_responses.UnprocessableEntityHttpErrorDetails(
                 detail=f"unprocessable entity: {entity}",
                 parameters=parameters,
             ),
@@ -103,15 +103,15 @@ class UnprocessableEntityHttpError(FuriousAPIError):
 
 
 # 424
-class FailedDependencyHttpError(FuriousAPIError):
+class FailedDependencyError(FuriousAPIError):
     def __init__(
         self,
         message: str = "",
         headers: Optional[Dict[str, Any]] = None,
-        parameters: Optional[List[error_details.ErrorParameter]] = None,
+        parameters: Optional[List[error_responses.Parameter]] = None,
     ) -> None:
         super().__init__(
-            details=error_details.FailedDependencyHttpErrorDetails(
+            details=error_responses.FailedDependencyHttpErrorDetails(
                 detail=message,
                 parameters=parameters,
             ),
@@ -120,18 +120,18 @@ class FailedDependencyHttpError(FuriousAPIError):
 
 
 # 429
-class TooManyRequestsHttpError(FuriousAPIError):
+class TooManyRequestsError(FuriousAPIError):
     def __init__(self, headers: Optional[Dict[str, Any]] = None) -> None:
-        super().__init__(details=error_details.TooManyRequestsHttpErrorDetails(), headers=headers)
+        super().__init__(details=error_responses.TooManyRequestsHttpErrorDetails(), headers=headers)
 
 
 # 500
 class InternalServerError(FuriousAPIError):
     def __init__(self, headers: Optional[Dict[str, Any]] = None) -> None:
-        super().__init__(details=error_details.InternalServerHttpErrorDetails(), headers=headers)
+        super().__init__(details=error_responses.InternalServerHttpErrorDetails(), headers=headers)
 
 
 # 504
-class RequestTimeoutHttpError(FuriousAPIError):
+class RequestTimeoutError(FuriousAPIError):
     def __init__(self, headers: Optional[Dict[str, Any]] = None) -> None:
-        super().__init__(details=error_details.RequestTimeoutHttpErrorDetails(), headers=headers)
+        super().__init__(details=error_responses.RequestTimeoutHttpErrorDetails(), headers=headers)
