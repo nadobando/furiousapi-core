@@ -2,6 +2,13 @@
 
 
 
+## v0.1.0-dev.1 (2023-11-04)
+
+### Feature
+
+* feat: improve pypi docs ([`57184be`](https://github.com/nadobando/furiousapi-core/commit/57184be6829cd6b4cbb07c5b5053ddb109fa3357))
+
+
 ## v0.0.0 (2023-11-04)
 
 ### Refactor
