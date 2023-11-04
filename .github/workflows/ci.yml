@@ -97,7 +97,7 @@ jobs:
 
   release:
     name: Release
-    if: github.ref == 'refs/heads/main'
+    if: contains(' refs/heads/dev refs/heads/main ', github.ref)
     needs:
       - pre-commit
       - test
