@@ -107,15 +107,6 @@ repos:
         stages: [post-checkout, post-merge]
         always_run: true
 
-      - id: poetry-export
-        name: poetry-export
-        entry: poetry export
-        args:
-          - -f
-          - requirements.txt
-          - -o requirements.txt
-        language: python
-        pass_filenames: false
 
   - repo: https://github.com/macisamuele/language-formatters-pre-commit-hooks
     rev: v2.10.0
