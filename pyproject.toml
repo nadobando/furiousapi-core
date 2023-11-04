@@ -173,7 +173,7 @@ version_toml = [
   "pyproject.toml:tool.poetry.version"
 ]
 version_variables = [
-  "pydango/__init__.py:__version__"
+  "furiousapi/core/__init__.py:__version__"
 ]
 
 [tool.semantic_release.branches.dev]
