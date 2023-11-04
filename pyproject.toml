@@ -157,12 +157,12 @@ mypy-init-return = true
 ignore-variadic-names = true
 
 [tool.ruff.per-file-ignores]
-"furiousapi/core/api/controllers/base.py" = ["N804"]
-"furiousapi/core/api/controllers/mixins.py" = ["N805"]
-"furiousapi/core/controllers/base.py" = ["N804"]
-"furiousapi/core/db/fields.py" = ["N805"]
+"furiousapi/api/controllers/base.py" = ["N804"]
+"furiousapi/api/controllers/mixins.py" = ["N805"]
+"furiousapi/db/controllers/base.py" = ["N804"]
+"furiousapi/db/fields.py" = ["N805"]
 # "furiousapi/core/db/mongo/models.py" = ["N804"]
-"furiousapi/core/db/metaclasses.py" = ["N804"]
+"furiousapi/db/metaclasses.py" = ["N804"]
 "tests/*" = ["ANN201", "S101", "DTZ001", "PLR0913"]
 
 [tool.ruff.pyupgrade]

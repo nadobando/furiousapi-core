@@ -36,11 +36,11 @@ class SortableFieldsEnumMeta(EnumMeta):
         for i in range(min(len(options), cls.__examples_count__)):
             field_name = getattr(options[i], by_field.value)
             examples[str(-options[i])] = {
-                "summary": f"order by  {field_name} {(-options[i]).direction}",
+                "summary": f"order by  {field_name} {(-options[i]).direction.value}",
                 "value": str(-options[i]),
             }
             examples[str(+options[i])] = {
-                "summary": f"order by  {field_name} {(+options[i]).direction}",
+                "summary": f"order by  {field_name} {(+options[i]).direction.value}",
                 "value": str(+options[i]),
             }
         return examples
@@ -76,7 +76,7 @@ class SortableFieldEnum(str, Enum, metaclass=SortableFieldsEnumMeta):
         return f"<{self.name}: {self.direction}>"
 
     def __str__(self) -> str:
-        return f"{self.name}:{self.direction}"
+        return f"{self.value}:{self.direction.value}"
 
     @DynamicClassAttribute
     def direction(self) -> SortingDirection:

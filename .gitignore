@@ -140,4 +140,5 @@ dmypy.json
 cython_debug/
 .idea
 
-node_modules
+
+.ruff_cache

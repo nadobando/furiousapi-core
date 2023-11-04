@@ -1,24 +1,12 @@
 from functools import lru_cache
 from typing import Any, Dict, Generic, Optional, TypeVar, Union, get_type_hints
 
-from pydantic import BaseModel, BaseSettings, Field
-from pydantic import PostgresDsn as _PostgresDsn
-from pydantic import validator
+from pydantic import BaseModel, BaseSettings, Field, validator
 from pydantic.generics import GenericModel
 from pydantic.networks import MultiHostDsn
 
-
-class MongoDBDsn(MultiHostDsn):
-    allowed_schemes = "mongodb"
-    user_required = False
-
-
-class PostgresDsn(_PostgresDsn):
-    user_required = False
-
-
 # noinspection PyTypeHints
-TConnectionString = TypeVar("TConnectionString", MongoDBDsn, PostgresDsn)
+TConnectionString = TypeVar("TConnectionString", bound=MultiHostDsn)
 # noinspection PyTypeHints
 TConnectionOptions = TypeVar("TConnectionOptions", bound=BaseModel)
 

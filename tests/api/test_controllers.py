@@ -5,6 +5,7 @@ from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
+    ClassVar,
     Dict,
     Iterable,
     List,
@@ -20,26 +21,35 @@ from pydantic import BaseModel, Field
 from pydantic.main import ModelMetaclass
 from starlette.testclient import TestClient
 
-from furiousapi.core.api.controllers import CBV, ModelController, action
-from furiousapi.core.db.fields import SortableFieldEnum
-from furiousapi.core.db.models import FuriousPydanticConfig
-from furiousapi.core.db.repository import BaseRepository, RepositoryConfig
-from furiousapi.core.pagination import AllPaginationStrategies, PaginatedResponse
-from furiousapi.core.responses import BulkResponseModel
+from furiousapi.api import CBV, ModelController, action
+from furiousapi.api.controllers.mixins import GetRouteMixin
+from furiousapi.api.error_responses import NotFoundHttpErrorDetails
+from furiousapi.api.pagination import AllPaginationStrategies, PaginatedResponse
+from furiousapi.api.responses import BulkResponseModel
 from furiousapi.core.types import TEntity, TModelFields
+from furiousapi.db import BaseRepository, RepositoryConfig
+from furiousapi.db.fields import SortableFieldEnum
+from furiousapi.db.models import FuriousPydanticConfig
 
 if TYPE_CHECKING:
     from fastapi.dependencies.models import Dependant
     from fastapi.routing import APIRoute
 
+GET_RESPONSES = {404: {"model": NotFoundHttpErrorDetails}}
 
-class MyCBV(CBV):
+
+class MyCBV(CBV, GetRouteMixin):
+    __route_config__: ClassVar = {"get": {"responses": GET_RESPONSES}}
+
     @action("/endpoint1")
     def endpoint1(self, query_param: str = Query(...)):
         pass
 
     @action("/endpoint2")
     def endpoint2(self, query_param: str = Query(...)):
+        pass
+
+    def get(self):
         pass
 
 
@@ -61,7 +71,7 @@ def test_cbv__when_api_router__then_use_it():
 
 def test_cbv__actions_are_defined():
     my = MyCBV()
-    assert len(MyCBV.api_router.routes) == 2  # noqa: PLR2004
+    assert len(MyCBV.api_router.routes) == 3  # noqa: PLR2004
     route1: APIRoute = my.api_router.routes[0]
     route2: APIRoute = my.api_router.routes[1]
     assert route1.path == "/endpoint1"
@@ -83,6 +93,13 @@ def test_cbv__when_class_dependency_defined__then_init_changed():
         MyCBV2(my_dep=Depends(repository_dependency))  # type: ignore[call-arg]
     except Exception:  # noqa: BLE001
         pytest.fail("something happened")
+
+
+def test_cbv__when_using_mixin__then_mixin_is_configurable():
+    cbv = MyCBV()  # type: ignore[call-arg]
+    route = next(filter(lambda x: x.name == "get", cbv.api_router.routes))
+    assert route
+    assert route.responses == GET_RESPONSES
 
 
 class MyModel(BaseModel):
@@ -191,7 +208,7 @@ def test_list(controller: MyController):
     route: APIRoute = next(filter(lambda x: x.name == "list", controller.api_router.routes))
     pagination = route.dependant.dependencies[1]
     assert pagination.name == "pagination"
-    for param, dep in zip(["limit", "type", "next"], pagination.query_params):
+    for param, dep in zip(["limit", "pagination_type", "next"], pagination.query_params):
         assert param == dep.name
 
     filtering = route.dependant.query_params[2]

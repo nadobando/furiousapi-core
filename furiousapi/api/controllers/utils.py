@@ -4,7 +4,7 @@ import re
 from typing import TYPE_CHECKING, Type
 
 if TYPE_CHECKING:
-    from furiousapi.core.api.controllers import ModelController
+    from furiousapi.api.controllers import ModelController
 
 
 def to_snake_case(s: str) -> str:

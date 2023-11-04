@@ -6,10 +6,9 @@ from pydantic import Field
 from pydantic.generics import GenericModel
 
 from furiousapi.core.config import get_settings
-from furiousapi.core.db.metaclasses import AllOptionalMeta
-from furiousapi.core.db.models import FuriousModel
-
-from .types import TEntity
+from furiousapi.core.types import TEntity
+from furiousapi.db.metaclasses import AllOptionalMeta
+from furiousapi.db.models import FuriousModel
 
 if TYPE_CHECKING:
     from pydantic.typing import AbstractSetIntStr, DictStrAny, MappingIntStrAny
@@ -67,7 +66,7 @@ class BasePaginationParams(FuriousModel, metaclass=AllOptionalMeta):
 
 class OffsetPaginationParams(BasePaginationParams):
     offset: Optional[int]
-    type: Literal[PaginationStrategyEnum.OFFSET] = PaginationStrategyEnum.OFFSET
+    pagination_type: Literal[PaginationStrategyEnum.OFFSET] = PaginationStrategyEnum.OFFSET
 
     @property
     def next(self) -> int:
@@ -75,7 +74,7 @@ class OffsetPaginationParams(BasePaginationParams):
 
 
 class CursorPaginationParams(BasePaginationParams):
-    type: Literal[PaginationStrategyEnum.CURSOR] = PaginationStrategyEnum.CURSOR
+    pagination_type: Literal[PaginationStrategyEnum.CURSOR] = PaginationStrategyEnum.CURSOR
     next_: str = Field(alias="next", description="next record")
 
     @property

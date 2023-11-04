@@ -134,11 +134,13 @@ def _is_annotated_dependency(dependency_hint: Any) -> bool:
 
 
 def _is_mixin(cls: Type) -> bool:
+    custom_abstract = hasattr(cls, "__abstract__") and cls.__abstract__
     return (
         issubclass(cls, BaseRouteMixin)
         and cls is not BaseRouteMixin
         and not isinstance(cls, CBVMeta)
         and not inspect.isabstract(cls)
+        and not custom_abstract
     )
 
 
@@ -306,6 +308,7 @@ class CBVMeta(abc.ABCMeta):
 class CBV(abc.ABC, metaclass=CBVMeta):
     api_router: ClassVar[APIRouter]
     __enabled_routes__: ClassVar[Sequence[str]] = ()
+    __route_config__: ClassVar[Dict[str, dict]] = {}
 
 
 class ModelController(

@@ -3,7 +3,7 @@ from typing import TypeVar
 
 from pydantic import BaseModel
 
-from furiousapi.core.db.fields import SortableFieldEnum
+from furiousapi.db.fields import SortableFieldEnum
 
 TEntity = TypeVar("TEntity", bound=BaseModel)
 TModelFields = TypeVar("TModelFields", bound=Enum)

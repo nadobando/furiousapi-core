@@ -16,10 +16,10 @@ from typing import (
 )
 
 from furiousapi.core.config import get_settings
-from furiousapi.core.db.fields import SortableFieldEnum
 from furiousapi.core.exceptions import FuriousError
 from furiousapi.core.fields import SortingDirection
 from furiousapi.core.types import TEntity
+from furiousapi.db.fields import SortableFieldEnum
 
 DEFAULT_PAGE_SIZE = get_settings().pagination.default_size
 logger = logging.getLogger(__name__)

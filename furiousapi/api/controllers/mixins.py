@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import abc
 import inspect
-from abc import ABC
+from abc import ABC, abstractmethod
 from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
     ClassVar,
+    Dict,
     List,
     Optional,
     Type,
@@ -18,31 +18,33 @@ from typing import (
 from fastapi import APIRouter, Path, Query
 from pydantic import BaseModel, conlist
 
-from furiousapi.core.api import error_details
-from furiousapi.core.db.metaclasses import model_query
-from furiousapi.core.db.repository import BaseRepository  # noqa: TCH001
-from furiousapi.core.pagination import CursorPaginationParams, PaginatedResponse
-from furiousapi.core.responses import BulkResponseModel, PartialModelResponse
+from furiousapi.api import error_responses
+from furiousapi.api.pagination import CursorPaginationParams, PaginatedResponse
+from furiousapi.api.responses import BulkResponseModel, PartialModelResponse
+from furiousapi.db.metaclasses import model_query
+from furiousapi.db.repository import BaseRepository  # noqa: TCH001
 
 from .utils import add_model_method_name
 
 if TYPE_CHECKING:
-    from furiousapi.core.db.fields import SortableFieldEnum
     from furiousapi.core.types import TEntity, TModelFields
+    from furiousapi.db.fields import SortableFieldEnum
 
     from .base import ModelController, Sentinel  # noqa: F401,RUF100
 
 
 class BaseRouteMixin(ABC):
     api_router: ClassVar[APIRouter]
+    __route_config__: ClassVar[Dict[str, dict]]
+    __method_name__: ClassVar[Union[str, Callable[[], str]]]
 
-    @classmethod  # type: ignore[misc] # python3.11 deprecated
-    @property
-    @abc.abstractmethod
-    def __method_name__(cls) -> str: ...
+    @classmethod
+    def _get_route_params(cls) -> dict:
+        method_name: str = cls.__method_name__() if callable(cls.__method_name__) else cls.__method_name__
+        return cls.__route_config__.get(method_name, {})
 
     # noinspection PyMethodParameters
-    @abc.abstractmethod
+    @abstractmethod
     def __bootstrap__(cls: Type, *args, **kwargs) -> None:  # type: ignore[misc]
         """
         this function actually works kinds of a hack
@@ -62,6 +64,62 @@ class BaseModelRouteMixin(BaseRouteMixin, ABC):
     __repository_cls__: ClassVar[Type[BaseRepository]]
 
 
+class RouteMixin(BaseRouteMixin, ABC):
+    __abstract__: bool = True
+
+    def __init_subclass__(cls, **kwargs) -> None:
+        cls.__abstract__ = False
+
+    def __bootstrap__(cls, *args, **kwargs) -> None:
+        route_params = cls._get_route_params()
+        method_name = cls.__method_name__() if callable(cls.__method_name__) else cls.__method_name__
+        api_router_method = getattr(cls.api_router, method_name)
+        endpoint = getattr(cls, method_name)
+        api_router_method("/", **route_params)(endpoint)  # type: ignore[arg-type]
+
+
+class GetRouteMixin(RouteMixin):
+    __method_name__ = "get"
+
+    def get(self, *args, **kwargs) -> Any:
+        raise NotImplementedError
+
+
+class PostRouteMixin(RouteMixin):
+    __method_name__ = "post"
+
+    def post(self, *args, **kwargs) -> Any:
+        raise NotImplementedError
+
+
+class PutRouteMixin(RouteMixin, ABC):
+    __method_name__ = "put"
+
+    def put(self, *args, **kwargs) -> Any:
+        raise NotImplementedError
+
+
+class PatchRouteMixin(RouteMixin):
+    __method_name__ = "patch"
+
+    def patch(self, *args, **kwargs) -> Any:
+        raise NotImplementedError
+
+
+class DeleteRouteMixin(RouteMixin):
+    __method_name__ = "delete"
+
+    def delete(self, *args, **kwargs) -> Any:
+        raise NotImplementedError
+
+
+class OptionsRouteMixin(RouteMixin):
+    __method_name__: ClassVar[str] = "options"
+
+    def options(self, *args, **kwargs) -> Any:
+        raise NotImplementedError
+
+
 class GetModelMixin(BaseModelRouteMixin):
     __method_name__: ClassVar[str] = "get"
 
@@ -73,8 +131,10 @@ class GetModelMixin(BaseModelRouteMixin):
         )
 
         cls.get.__signature__ = signature.replace(parameters=list(parameters.values()))  # type: ignore[attr-defined]
-        responses = {404: {"model": error_details.NotFoundHttpErrorDetails, "content": {"application/json": {}}}}
+        responses = {404: {"model": error_responses.NotFoundHttpErrorDetails, "content": {"application/json": {}}}}
         params = {"responses": responses, "response_model": cls.__repository_cls__.__model__}
+        route_params = cls._get_route_params()
+        params.update(route_params)
         add_model_method_name(cast("Type[ModelController]", cls), params)
 
         cls.api_router.get("/{id}", **params)(cls.get)  # type: ignore[arg-type]
@@ -106,6 +166,10 @@ class ListModelMixin(BaseModelRouteMixin):
         )
         cls.list.__signature__ = signature.replace(parameters=list(parameters.values()))  # type: ignore[attr-defined]
         params = {"response_model": PaginatedResponse[cls.__repository_cls__.__model__]}  # type: ignore[name-defined]
+
+        route_params = cls._get_route_params()
+        params.update(route_params)
+
         add_model_method_name(cast("Type[ModelController]", cls), params, plural=True)
         cls.api_router.get("/", **params)(cls.list)  # type: ignore[arg-type]
 
@@ -127,8 +191,10 @@ class DeleteModelMixin(BaseModelRouteMixin):
     __method_name__: ClassVar[str] = "delete"
 
     def __bootstrap__(cls, *args, **kwargs) -> None:
-        responses = {404: {"model": error_details.NotFoundHttpErrorDetails, "content": {"application/json": {}}}}
+        responses = {404: {"model": error_responses.NotFoundHttpErrorDetails, "content": {"application/json": {}}}}
         params = {"responses": responses}
+        route_params = cls._get_route_params()
+        params.update(route_params)
         add_model_method_name(cast("Type[ModelController]", cls), params)
         cls.api_router.delete("/{id}", **params)(cls.delete)  # type: ignore[arg-type]
 
@@ -141,7 +207,7 @@ class CreateModelMixin(BaseModelRouteMixin):
     create_model: ClassVar[Optional[Type[BaseModel]]] = None
 
     def __bootstrap__(cls, **kwargs) -> None:
-        responses = {409: {"model": error_details.ConflictHttpErrorDetails, "content": {"application/json": {}}}}
+        responses = {409: {"model": error_responses.ConflictHttpErrorDetails, "content": {"application/json": {}}}}
         signature = inspect.signature(cls.create)
         parameters = signature.parameters.copy()
         if (
@@ -155,6 +221,8 @@ class CreateModelMixin(BaseModelRouteMixin):
 
         cls.create.__signature__ = signature.replace(parameters=list(parameters.values()))  # type: ignore[attr-defined]
         params = {"responses": responses, "response_model": cls.__repository_cls__.__model__}
+        route_params = cls._get_route_params()
+        params.update(route_params)
         add_model_method_name(cast("Type[ModelController]", cls), params)
         cls.api_router.post("/", **params)(cls.create)  # type: ignore[arg-type]
 
@@ -167,7 +235,7 @@ class UpdateModelMixin(BaseModelRouteMixin):
     update_model: ClassVar[Optional[Type[BaseModel]]] = None
 
     def __bootstrap__(cls, *args, **kwargs) -> None:
-        responses = {400: {"model": error_details.BadRequestHttpErrorDetails, "content": {"application/json": {}}}}
+        responses = {400: {"model": error_responses.BadRequestHttpErrorResponse, "content": {"application/json": {}}}}
         signature = inspect.signature(cls.update)
         parameters = signature.parameters.copy()
         if (
@@ -181,6 +249,8 @@ class UpdateModelMixin(BaseModelRouteMixin):
 
         cls.update.__signature__ = signature.replace(parameters=list(parameters.values()))  # type: ignore[attr-defined]
         params = {"responses": responses, "response_model": cls.__repository_cls__.__model__}
+        route_params = cls._get_route_params()
+        params.update(route_params)
         add_model_method_name(cast("Type[ModelController]", cls), params)
         cls.api_router.put("/", **params)(cls.update)  # type: ignore[arg-type]
 
@@ -207,7 +277,7 @@ class BulkCreateModelMixin(BulkBase):
     __bulk_method__ = "post"
 
     def __bootstrap__(cls, *args, **kwargs) -> None:
-        responses = {409: {"model": error_details.ConflictHttpErrorDetails, "content": {"application/json": {}}}}
+        responses = {409: {"model": error_responses.ConflictHttpErrorDetails, "content": {"application/json": {}}}}
         signature = inspect.signature(cls.bulk_create)
         parameters = signature.parameters.copy()
         if (
@@ -222,6 +292,8 @@ class BulkCreateModelMixin(BulkBase):
             parameters=list(parameters.values())
         )
         params = {"responses": responses, "response_model": List[cls.bulk_response_model]}  # type: ignore[name-defined]
+        route_params = cls._get_route_params()
+        params.update(route_params)
         add_model_method_name(cast("Type[ModelController]", cls), params)
         cls.set_route(cls, "post", cls.bulk_create, **params)
 
@@ -234,7 +306,7 @@ class BulkUpdateModelMixin(BulkBase):
     __method_name__: ClassVar[str] = "bulk_update"
 
     def __bootstrap__(cls, *args, **kwargs) -> Any:
-        responses = {409: {"model": error_details.ConflictHttpErrorDetails, "content": {"application/json": {}}}}
+        responses = {409: {"model": error_responses.ConflictHttpErrorDetails, "content": {"application/json": {}}}}
         signature = inspect.signature(cls.bulk_update)
         parameters = signature.parameters.copy()
         if (
@@ -253,6 +325,8 @@ class BulkUpdateModelMixin(BulkBase):
             "responses": responses,
             "response_model": List[cls.__repository_cls__.__model__],  # type: ignore[name-defined]
         }
+        route_params = cls._get_route_params()
+        params.update(route_params)
         add_model_method_name(cast("Type[ModelController]", cls), params)
         cls.set_route(cls, "put", cls.bulk_update, **params)
 
@@ -264,7 +338,7 @@ class BulkDeleteModelMixin(BulkBase):
     __method_name__: ClassVar[str] = "bulk_delete"
 
     def __bootstrap__(cls, *args, **kwargs) -> None:
-        responses = {409: {"model": error_details.ConflictHttpErrorDetails, "content": {"application/json": {}}}}
+        responses = {409: {"model": error_responses.ConflictHttpErrorDetails, "content": {"application/json": {}}}}
         signature = inspect.signature(cls.bulk_delete)
         parameters = signature.parameters.copy()
         annotation = cls.__repository_cls__.__model__.__fields__["id"].annotation
@@ -283,6 +357,8 @@ class BulkDeleteModelMixin(BulkBase):
             "responses": responses,
             "response_model": List[annotation],  # type: ignore[valid-type]
         }
+        route_params = cls._get_route_params()
+        params.update(route_params)
         add_model_method_name(cast("Type[ModelController]", cls), params)
         cls.set_route(cls, "delete", cls.bulk_delete, **params)
 
