@@ -169,14 +169,21 @@ ignore-variadic-names = true
 keep-runtime-typing = true
 
 [tool.semantic_release]
-match = "main"
-prerelease = false
 version_toml = [
   "pyproject.toml:tool.poetry.version"
 ]
 version_variables = [
   "pydango/__init__.py:__version__"
 ]
+
+[tool.semantic_release.branches.dev]
+match = "dev"
+prerelease = true
+prerelease_token = "dev"
+
+[tool.semantic_release.branches.main]
+match = "main"
+prerelease = false
 
 [tool.semantic_release.changelog]
 exclude_commit_patterns = [
