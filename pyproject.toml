@@ -167,3 +167,22 @@ ignore-variadic-names = true
 
 [tool.ruff.pyupgrade]
 keep-runtime-typing = true
+
+[tool.semantic_release]
+match = "main"
+prerelease = false
+version_toml = [
+  "pyproject.toml:tool.poetry.version"
+]
+version_variables = [
+  "pydango/__init__.py:__version__"
+]
+
+[tool.semantic_release.changelog]
+exclude_commit_patterns = [
+  "^ci:.*",
+  "^(?!feat:|fix:|perf:|refactor:).*$"
+]
+
+[tool.semantic_release.publish]
+upload_to_vcs_release = false
