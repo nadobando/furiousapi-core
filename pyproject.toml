@@ -62,12 +62,42 @@ plugins = "pydantic.mypy"
 
 [tool.poetry]
 authors = ["nadobando <7695172+nadobando@users.noreply.github.com>"]
-description = ""
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Framework :: AsyncIO",
+  "Framework :: Pydantic",
+  "Framework :: FastAPI",
+  "Topic :: Software Development",
+  "Topic :: Internet",
+  "Topic :: Software Development :: Libraries :: Application Frameworks",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: Software Development :: Libraries",
+  "Topic :: Software Development",
+  "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
+  "Topic :: Internet :: WWW/HTTP",
+  "Environment :: Web Environment",
+  "Intended Audience :: Developers",
+  "Typing :: Typed"
+]
+description = "FastAPI & FuriousAPI"
+documentation = "https://nadobando.github.io/furiousapi"
+homepage = "https://github.com/nadobando/furiousapi"
+license = "MIT"
 name = "furiousapi-core"
 packages = [
   {include = "furiousapi"}
 ]
 readme = "README.md"
+repository = "https://github.com/nadobando/furiousapi"
 version = "0.0.0"
 
 [tool.poetry.dependencies]
