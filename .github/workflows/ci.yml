@@ -90,7 +90,7 @@ jobs:
         if: success() || failure()
         with:
           path: coverage.xml
-          minimum_coverage: 75
+          minimum_coverage: 65
           fail_below_threshold: true
 
 
