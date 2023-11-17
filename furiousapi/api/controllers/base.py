@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 import inspect
 import logging
+import sys
 from functools import wraps
 
 # noinspection PyUnresolvedReferences
@@ -45,9 +46,9 @@ if TYPE_CHECKING:
     from fastapi.routing import APIRoute
     from starlette.routing import BaseRoute
 
-    try:
-        from typing import TypeAlias  # type: ignore[attr-defined]
-    except ImportError:
+    if sys.version_info >= (3, 10):
+        from typing import TypeAlias
+    else:
         from typing_extensions import TypeAlias
 
 from .mixins import (
@@ -69,6 +70,18 @@ ROUTE_PATH = "__furious_route_path__"
 ROUTE_KWARGS = "__furious_route_kwargs__"
 NoneType = type(None)
 Sentinel: TypeAlias = Annotated[NoneType, Depends]
+
+if sys.version_info >= (3, 11):
+    from typing import NamedTuple
+
+    class DependencyMetaData(NamedTuple):
+        return_type: Any
+        dependency: Depends
+
+else:
+    from collections import namedtuple
+
+    DependencyMetaData: NamedTuple = namedtuple("DependencyMetaData", ("return_type", "dependency"))  # noqa: PYI024
 
 
 def _type_is_sentinel(type_: GenericAlias) -> bool:
@@ -97,12 +110,12 @@ def _class_has_sentinels(cls: Type[Any]) -> bool:
     class_sentinels = [
         name for name, hint in get_type_hints(cls, include_extras=True).items() if _type_is_sentinel(hint)
     ]
+    dependencies_values = _get_cls_dependencies(cls)
 
-    dependencies_values = dict(inspect.getmembers(cls, _is_dependency))
     for name in class_sentinels:
         if name not in dependencies_values:
             return True
-        if isinstance(dependencies_values[name], Depends):
+        if isinstance(dependencies_values[name].dependency, Depends):
             class_sentinels.remove(name)
 
     return bool(class_sentinels)
@@ -130,7 +143,7 @@ def _is_dependency(member: str) -> bool:
 
 def _is_annotated_dependency(dependency_hint: Any) -> bool:
     args = get_args(dependency_hint)
-    return isinstance(dependency_hint, _AnnotatedAlias) and args[1] is Depends
+    return isinstance(dependency_hint, _AnnotatedAlias) and (args[1] is Depends or isinstance(args[1], Depends))
 
 
 def _is_mixin(cls: Type) -> bool:
@@ -153,16 +166,18 @@ def _new_init(cls: Type) -> None:
     ]
     dependency_names: List[str] = []
 
-    dependencies = _get_cls_dependencies_values(cls)
+    dependencies = _get_cls_dependencies(cls)
 
-    for name, hint in dependencies:
-        setattr(cls, f"__{name}_cls__", hint)
-        if is_classvar(cast(Type[Any], hint)):
+    for name, meta in dependencies.items():
+        setattr(cls, f"__{name}_cls__", meta.return_type)
+        if is_classvar(cast(Type[Any], meta)):
             continue
-        parameter_kwargs = {"default": getattr(cls, name, Ellipsis)}
+        parameter_kwargs = {"default": meta.dependency}
         dependency_names.append(name)
         new_parameters.append(
-            inspect.Parameter(name=name, kind=inspect.Parameter.KEYWORD_ONLY, annotation=hint, **parameter_kwargs),
+            inspect.Parameter(
+                name=name, kind=inspect.Parameter.KEYWORD_ONLY, annotation=meta.return_type, **parameter_kwargs
+            ),
         )
     new_signature = old_signature.replace(parameters=new_parameters)
 
@@ -179,23 +194,29 @@ def _new_init(cls: Type) -> None:
     cls.__init__ = new_init
 
 
-def _get_cls_dependencies_values(cls: Type) -> Set[Tuple[str, Type]]:
-    dependencies: Set[Tuple[str, Type]] = set()
+def _get_cls_dependencies(cls: Type) -> Dict[str, DependencyMetaData]:
     dependencies_by_name = dict(inspect.getmembers(cls, _is_dependency))
     hints = get_type_hints(cls, include_extras=True)
+    dependencies: dict[str, DependencyMetaData] = {}
 
     for dependency_name, dependency in dependencies_by_name.items():
         cls.__annotations__[dependency_name] = dependency
-        return_type = get_type_hints(dependency.dependency).get("return")
-        logger.warning(
-            f"dependency {dependency_name} has not defined return type hint __{dependency_name}__cls__ will be None"
-        )
-        dependencies.add((dependency_name, cast(Type, return_type)))
+        real_dependency = dependency.dependency
+        return_type = None
+        if isinstance(real_dependency, type):  # is a class
+            return_type = real_dependency
+        elif callable(real_dependency):
+            return_type = get_type_hints(real_dependency).get("return")
+        else:
+            logger.warning(
+                f"dependency {dependency_name} has not defined return type hint __{dependency_name}__cls__ will be None"
+            )
+        dependencies[dependency_name] = DependencyMetaData(return_type, dependency)
 
     for dependency_name, dependency_hint in _get_annotated_dependencies(dependencies_by_name, hints):
         args = get_args(dependency_hint)
         return_type = args[0]
-        dependencies.add((dependency_name, cast(Type, return_type)))
+        dependencies[dependency_name] = DependencyMetaData(return_type, args[1])
 
     return dependencies
 

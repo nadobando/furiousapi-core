@@ -77,6 +77,7 @@ classifiers = [
   "Framework :: Pydantic",
   "Framework :: FastAPI",
   "Topic :: Software Development",
+  "Topic :: Database",
   "Topic :: Internet",
   "Topic :: Software Development :: Libraries :: Application Frameworks",
   "Topic :: Software Development :: Libraries :: Python Modules",
