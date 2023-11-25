@@ -40,7 +40,7 @@ class BulkItemSuccess(BaseModel):
 
 class BulkItemError(BaseModel):
     status: Optional[Literal[BulkItemStatusEnum.ERROR]] = Field(default=BulkItemStatusEnum.ERROR)
-    message: str
+    detail: str
 
 
 BulkResponseModelUnion = Union[BulkItemError, BulkItemSuccess]

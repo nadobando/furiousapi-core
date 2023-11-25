@@ -4,6 +4,7 @@ import abc
 import inspect
 import logging
 import sys
+import typing
 from functools import wraps
 
 # noinspection PyUnresolvedReferences
@@ -36,7 +37,10 @@ from pydantic.typing import is_classvar
 from starlette.responses import JSONResponse, Response
 
 from furiousapi.core.exceptions import FuriousError
+from furiousapi.db import BaseRepository  # noqa: TCH001
 from furiousapi.utils import NOT_SET
+
+from .utils import _add_self_as_dependency
 
 if TYPE_CHECKING:
     from enum import Enum
@@ -53,9 +57,6 @@ if TYPE_CHECKING:
 
 from .mixins import (
     BaseRouteMixin,
-    BulkCreateModelMixin,
-    BulkDeleteModelMixin,
-    BulkUpdateModelMixin,
     CreateModelMixin,
     DeleteModelMixin,
     GetModelMixin,
@@ -69,7 +70,7 @@ IS_ROUTE = "__furious_route__"
 ROUTE_PATH = "__furious_route_path__"
 ROUTE_KWARGS = "__furious_route_kwargs__"
 NoneType = type(None)
-Sentinel: TypeAlias = Annotated[NoneType, Depends]
+Sentinel: TypeAlias = Depends
 
 if sys.version_info >= (3, 11):
     from typing import NamedTuple
@@ -121,22 +122,6 @@ def _class_has_sentinels(cls: Type[Any]) -> bool:
     return bool(class_sentinels)
 
 
-def _update_cbv_route_endpoint_signature(cls: Type[Any], route: Callable[..., Any]) -> None:
-    """
-    Fixes the endpoint signature for a cbv route to ensure FastAPI performs dependency injection properly.
-    """
-
-    old_signature = inspect.signature(route)
-    old_parameters: List[inspect.Parameter] = list(old_signature.parameters.values())
-    old_first_parameter = old_parameters[0]
-    new_first_parameter = old_first_parameter.replace(default=Depends(cls))
-    new_parameters = [new_first_parameter] + [
-        parameter.replace(kind=inspect.Parameter.KEYWORD_ONLY) for parameter in old_parameters[1:]
-    ]
-    new_signature = old_signature.replace(parameters=new_parameters)
-    route.__signature__ = new_signature  # type:ignore[attr-defined]
-
-
 def _is_dependency(member: str) -> bool:
     return isinstance(member, Depends)
 
@@ -146,18 +131,7 @@ def _is_annotated_dependency(dependency_hint: Any) -> bool:
     return isinstance(dependency_hint, _AnnotatedAlias) and (args[1] is Depends or isinstance(args[1], Depends))
 
 
-def _is_mixin(cls: Type) -> bool:
-    custom_abstract = hasattr(cls, "__abstract__") and cls.__abstract__
-    return (
-        issubclass(cls, BaseRouteMixin)
-        and cls is not BaseRouteMixin
-        and not isinstance(cls, CBVMeta)
-        and not inspect.isabstract(cls)
-        and not custom_abstract
-    )
-
-
-def _new_init(cls: Type) -> None:
+def _generate_init_fn_with_injected_dependencies(cls: Type) -> None:
     old_init: Callable[..., Any] = cls.__init__
     old_signature = inspect.signature(old_init)
     old_parameters: list[inspect.Parameter] = list(old_signature.parameters.values())[1:]  # drop `self` parameter
@@ -282,46 +256,28 @@ def action(path: str, **route_kwargs):
 
 
 class CBVMeta(abc.ABCMeta):
-    __enabled_routes__: Union[Set[str], List[str], Tuple[str]]
-    api_router: APIRouter
-
     def __new__(mcs, name: str, bases: tuple, namespace: dict, **router_kwargs) -> Any:
-        cls = super().__new__(mcs, name, bases, namespace)
+        cls: Type[CBV] = cast("Type[CBV]", super().__new__(mcs, name, bases, namespace))
         parents = [b for b in bases if isinstance(b, mcs)]
-        if not parents:
-            return cls
-        if _class_has_sentinels(cls):
+        if not parents or namespace.get("__abstract__", False):
             return cls
 
-        _new_init(cls)
+        _generate_init_fn_with_injected_dependencies(cls)
 
         if not hasattr(cls, "api_router") or not cls.api_router or not isinstance(cls.api_router, APIRouter):
             api_router = APIRouter(**router_kwargs)
             cls.api_router = api_router
 
         for _, route in inspect.getmembers(cls, _is_route):
-            _update_cbv_route_endpoint_signature(cls, route)
-            cls.api_router.add_api_route(getattr(route, ROUTE_PATH), route, **getattr(route, ROUTE_KWARGS))
+            _add_self_as_dependency(cls, route)
+            path = getattr(route, ROUTE_PATH)
+            cls.api_router.add_api_route(path, route, **getattr(route, ROUTE_KWARGS))
 
-        mixins: list[Type[BaseRouteMixin]] = cast(
-            list[Type[BaseRouteMixin]], [b for b in cls.mro()[1:] if _is_mixin(b)]
-        )
-
-        for mix in mixins:
-            try:
-                endpoint: Callable[..., Optional[Any]] = getattr(mix, cast(str, mix.__method_name__))
-            except AttributeError as e:
-                raise FuriousError(f"endpoint {mix.__method_name__} must be defined") from e
-
-            _update_cbv_route_endpoint_signature(cls, endpoint)
-            mix.__bootstrap__(cls)
+        if issubclass(cls, BaseRouteMixin):
+            cls.__bootstrap__()
 
         if cls.__enabled_routes__:
-            cls.api_router.routes = [
-                route
-                for route in cls.api_router.routes
-                if route.name in cls.__enabled_routes__  # type: ignore[attr-defined]
-            ]
+            cls.api_router.routes = [route for route in cls.api_router.routes if route.name in cls.__enabled_routes__]
 
         return cls
 
@@ -330,20 +286,30 @@ class CBV(abc.ABC, metaclass=CBVMeta):
     api_router: ClassVar[APIRouter]
     __enabled_routes__: ClassVar[Sequence[str]] = ()
     __route_config__: ClassVar[Dict[str, dict]] = {}
+    __abstract__: bool = True
+
+
+REPOSITORY = "repository"
 
 
 class ModelController(
     CBV, GetModelMixin, ListModelMixin, CreateModelMixin, UpdateModelMixin, DeleteModelMixin
 ):  # type: ignore[misc]
-    repository: Sentinel  # type: ignore[assignment]
+    repository: Annotated[BaseRepository, Depends]
     __model_name__: str
     __use_model_name__: bool = False
+    __abstract__ = True
 
-    @classmethod
-    def __new__(cls, *args, **kwargs):  # noqa: ANN206
-        if not isinstance(cls.repository, Depends):
-            raise FuriousError("repository must be a FastAPI Depends instance")
-        return super().__new__(cls)
+    def __init_subclass__(cls, *args, **kwargs) -> None:
+        if not issubclass(cls, ModelController):
+            return
 
+        repository_hint = typing.get_type_hints(cls, include_extras=True)[REPOSITORY]
+        dependency_from_hint = None
+        if typing.get_origin(repository_hint) is Annotated:
+            dependency_from_hint = [x for x in repository_hint.__metadata__ if isinstance(x, Depends)]
 
-class BulkView(BulkCreateModelMixin, BulkUpdateModelMixin, BulkDeleteModelMixin, ModelController): ...
+        dependency_from_value = hasattr(cls, REPOSITORY) and isinstance(cls.repository, Depends)
+
+        if not (dependency_from_value or dependency_from_hint):
+            raise FuriousError(f"{REPOSITORY} must be a FastAPI Depends instance")
