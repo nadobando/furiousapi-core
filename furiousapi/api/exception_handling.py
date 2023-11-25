@@ -23,7 +23,13 @@ DB_TO_HTTP_ERROR: Dict[Type[FuriousEntityError], Type] = {
 logger = logging.getLogger(__name__)
 
 
-def furious_exception_handler(_: Request, exception: FuriousEntityError) -> JSONResponse:
+def furious_db_exception_handler(_: Request, exception: FuriousEntityError) -> JSONResponse:
     api_exception: FuriousAPIError = DB_TO_HTTP_ERROR[exception.__class__](str(exception))
     logging.info("furiousapi error", exc_info=True)
-    return JSONResponse(content=api_exception, status_code=api_exception.status_code, headers=api_exception.headers)
+    return JSONResponse(
+        content=api_exception.detail, status_code=api_exception.status_code, headers=api_exception.headers
+    )
+
+
+def furious_api_exception_handler(_: Request, exception: FuriousAPIError) -> JSONResponse:
+    return JSONResponse(content=exception.detail, status_code=exception.status_code, headers=exception.headers)

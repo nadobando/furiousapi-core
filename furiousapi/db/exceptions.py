@@ -8,8 +8,8 @@ if TYPE_CHECKING:
 
 class FuriousEntityError(FuriousError):
     def __init__(self, model: Type["BaseModel"], **kwargs):
+        super().__init__()
         self.model = model
-        super().__init__(model)
 
 
 class EntityNotFoundError(FuriousEntityError):
@@ -18,7 +18,7 @@ class EntityNotFoundError(FuriousEntityError):
         self.id = id_
 
     def __str__(self) -> str:
-        return f"{self.model} with {self.id} not found"
+        return f"{self.model.__name__} with {self.id} not found"
 
 
 class EntityAlreadyExistsError(FuriousEntityError):
@@ -27,7 +27,7 @@ class EntityAlreadyExistsError(FuriousEntityError):
         self.id = id_
 
     def __str__(self) -> str:
-        return f"{self.model} with {self.id} already exists"
+        return f"{self.model.__name__} with {self.id} already exists"
 
 
 class FuriousBulkError(FuriousEntityError):
