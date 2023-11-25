@@ -44,7 +44,6 @@ from .utils import _add_self_as_dependency
 
 if TYPE_CHECKING:
     from enum import Enum
-    from types import GenericAlias
 
     from fastapi.encoders import DictIntStrAny, SetIntStr
     from fastapi.routing import APIRoute
@@ -83,43 +82,6 @@ else:
     from collections import namedtuple
 
     DependencyMetaData: NamedTuple = namedtuple("DependencyMetaData", ("return_type", "dependency"))  # noqa: PYI024
-
-
-def _type_is_sentinel(type_: GenericAlias) -> bool:
-    """
-    Check if the given type is a Sentinel.
-
-    :param type_: A `GenericAlias` instance representing a type annotation.
-    :type type_: `GenericAlias`
-
-    :return: A boolean indicating whether the given type is a Sentinel.
-    :rtype: `bool`
-    """
-    return type_ is Sentinel
-
-
-def _class_has_sentinels(cls: Type[Any]) -> bool:
-    """
-    Check if the given class has any attributes with Sentinel types.
-
-    :param cls: The class to inspect.
-    :type cls: type
-
-    :return: True if the class has any attributes with Sentinel types, False otherwise.
-    :rtype: bool
-    """
-    class_sentinels = [
-        name for name, hint in get_type_hints(cls, include_extras=True).items() if _type_is_sentinel(hint)
-    ]
-    dependencies_values = _get_cls_dependencies(cls)
-
-    for name in class_sentinels:
-        if name not in dependencies_values:
-            return True
-        if isinstance(dependencies_values[name].dependency, Depends):
-            class_sentinels.remove(name)
-
-    return bool(class_sentinels)
 
 
 def _is_dependency(member: str) -> bool:
