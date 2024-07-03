@@ -207,7 +207,11 @@ def action(path: str, **route_kwargs):
     def inner(func: Callable) -> Callable:
         @wraps(func)
         async def wrapper(*args, **kwargs) -> Any:
-            return await func(*args, **kwargs)
+            if inspect.iscoroutinefunction(func):
+                return await func(*args, **kwargs)
+            else:
+                return func(*args, **kwargs)
+
 
         setattr(wrapper, IS_ROUTE, True)
         setattr(wrapper, ROUTE_PATH, path)

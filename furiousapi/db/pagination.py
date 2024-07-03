@@ -170,9 +170,12 @@ class BaseCursorPagination(BasePagination, ABC):
         return False
 
     def get_field_orderings(self) -> List[SortableFieldEnum]:
-        if self.sorting is None:
-            raise AssertionError("sorting must be defined when using cursor pagination")
-        op = "__pos__" if self.sorting[-1].direction == SortingDirection.ASCENDING else "__neg__"
+        # if self.sorting is None:
+        #     raise AssertionError("sorting must be defined when using cursor pagination")
+        if self.sorting:
+            op = "__pos__" if self.sorting[-1].direction == SortingDirection.ASCENDING else "__neg__"
+        else:
+            op = "__pos__"
 
         missing_field_orderings = [
             getattr(self.sort_enum(id_field), op)()
