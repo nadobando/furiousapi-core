@@ -1,7 +1,11 @@
-import logging
-from typing import Dict, Type
+from __future__ import annotations
 
-from starlette.requests import Request
+import logging
+from typing import TYPE_CHECKING, Dict, Type
+
+if TYPE_CHECKING:
+    from starlette.requests import Request
+
 from starlette.responses import JSONResponse
 
 from furiousapi.api.exceptions import (

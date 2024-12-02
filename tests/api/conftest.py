@@ -1,12 +1,4 @@
 import pytest
-from api.models import (
-    MyModel1Controller,
-    MyModel1Repository,
-    MyModel2Controller,
-    MyModel2Repository,
-    repository1_dependency,
-    repository2_dependency,
-)
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
@@ -16,29 +8,37 @@ from furiousapi.api.exception_handling import (
 )
 from furiousapi.api.exceptions import FuriousAPIError
 from furiousapi.db.exceptions import FuriousEntityError
+from tests.api.models import (
+    MyModel1Controller,
+    MyModel1Repository,
+    MyModel2Controller,
+    MyModel2Repository,
+    repository1_dependency,
+    repository2_dependency,
+)
 
 
-@pytest.fixture()
-def repository1():
+@pytest.fixture
+def repository1() -> MyModel1Repository:
     return MyModel1Repository()
 
 
-@pytest.fixture()
-def repository2():
+@pytest.fixture
+def repository2() -> MyModel2Repository:
     return MyModel2Repository()
 
 
-@pytest.fixture()
+@pytest.fixture
 def controller1(repository1: MyModel1Repository) -> MyModel1Controller:
     return MyModel1Controller(repository=repository1)
 
 
-@pytest.fixture()
-def controller2(repository2: MyModel2Repository) -> MyModel1Controller:
+@pytest.fixture
+def controller2(repository2: MyModel2Repository) -> MyModel2Controller:
     return MyModel2Controller(repository=repository2)
 
 
-@pytest.fixture()
+@pytest.fixture
 def app(
     repository1: MyModel1Repository,
     controller1: MyModel1Controller,
@@ -58,6 +58,6 @@ def app(
     return app
 
 
-@pytest.fixture()
+@pytest.fixture
 def test_client(app: FastAPI) -> TestClient:
     return TestClient(app)

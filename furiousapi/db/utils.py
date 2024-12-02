@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import inspect
 import logging
 import sys
@@ -17,17 +19,19 @@ from typing import (
     cast,
 )
 
+import fastapi._compat
 from fastapi import Query
 from pydantic import BaseConfig, BaseModel, Extra, create_model
 from pydantic.fields import FieldInfo
 
 from furiousapi.utils import NOT_SET, NotSet
+from furiousapi.utils._pydantic_compat import PYDANTIC_V2
 
 from .consts import ANNOTATIONS
 from .fields import SortableFieldEnum
 
 if TYPE_CHECKING:
-    from pydantic.fields import ModelField
+    from furiousapi.utils._pydantic_compat import ModelField
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +40,16 @@ def get_model_fields(
     model: Type[BaseModel], include: Optional[Set[str]] = None, *, recursive: bool = False
 ) -> Dict[str, str]:
     keys = {}
-    config = model.Config  # type: ignore[attr-defined]
+    if PYDANTIC_V2:
+        config = model.model_config
+    else:
+        config = model.Config  # type: ignore[attr-defined]
     alias_generator = getattr(config, "alias_generator", lambda x: x) or (lambda x: x)
-    for key, value in model.__fields__.items():
+    if PYDANTIC_V2:
+        model_fields = {x.name: x for x in fastapi._compat.get_model_fields(model)}  # noqa: SLF001
+    else:
+        model_fields = model.__fields__  # type: ignore[assignment]
+    for key, value in model_fields.items():
         # if recursive and isinstance(value.type_, GenericAlias) and value.type_.__origin__ is list:
         #     pass
         if recursive and issubclass(value.type_, BaseModel):
@@ -98,9 +109,14 @@ class FieldAlias(NamedTuple):
 
 
 @lru_cache
-def model_alias_mapping(model: Type[BaseModel]) -> Dict[str, FieldAlias]:
+def model_alias_mapping(model: Type[BaseModel]) -> Dict[str | None, FieldAlias]:
     aliases = {}
-    for k, v in model.__fields__.items():
+    if PYDANTIC_V2:
+        model_fields = model.model_fields
+    else:
+        model_fields = model.__fields__  # type: ignore[assignment]
+
+    for k, v in model_fields.items():
         aliases[v.alias] = FieldAlias(k, v)
 
     return aliases
@@ -137,9 +153,16 @@ def create_subset_model(model: Type[BaseModel], projection: Projection) -> Type[
 
     while projection_stack:
         curr_model, curr_projection, curr_fields = projection_stack.pop()
+        model_fields = (PYDANTIC_V2 and curr_model.model_fields) or curr_model.__fields__
+
         for k, v in curr_projection.items():
             if isinstance(v, dict):
-                subset_field = curr_model.__fields__.get(k, None)
+                if PYDANTIC_V2:
+                    subset_field = {
+                        x.name: x for x in fastapi._compat.get_model_fields(curr_model)  # noqa: SLF001
+                    }.get(k)
+                else:
+                    subset_field = curr_model.__fields__.get(k, None)
 
                 if subset_field is not None and issubclass(subset_field.type_, BaseModel):
                     projection_stack.append((subset_field.type_, v, {}))
@@ -147,15 +170,18 @@ def create_subset_model(model: Type[BaseModel], projection: Projection) -> Type[
                 field_annotation = subset_field.type_ if subset_field is not None else v
                 field_info = None if subset_field is None else subset_field.field_info
                 curr_fields[k] = (field_annotation, field_info)
-
-            elif k in curr_model.__fields__ or k in alias_mapping:
-                field = curr_model.__fields__.get(k, None)
+            elif k in model_fields or k in alias_mapping:
+                field = model_fields.get(k, None)
                 if field is None:
                     alias = alias_mapping.get(k)
                     field = alias and alias.field
                 if field is not None:
-                    field_name = k if k in curr_model.__fields__ else alias_mapping[k].name
-                    curr_fields[field_name] = (field.annotation, field.field_info)
+                    field_name = k if k in model_fields else alias_mapping[k].name
+                    if PYDANTIC_V2:
+                        field_info = field
+                    else:
+                        field_info = field.field_info
+                    curr_fields[field_name] = (field.annotation, field_info)
 
     config = BaseConfig
     config.extra = Extra.ignore  # type: ignore[attr-defined]
@@ -198,7 +224,9 @@ def _remove_extra_data_from_signature(cls: Type[BaseModel]) -> None:
     cls.__signature__ = sig.replace(parameters=list(parameters.values()))
 
 
-def init_param(model_field: "ModelField", name: str, alias: str, parameter: inspect.Parameter) -> inspect.Parameter:
+def init_query_param(
+    model_field: "ModelField", name: str, alias: str, parameter: inspect.Parameter
+) -> inspect.Parameter:
     annotation = model_field.annotation
     return inspect.Parameter(
         name=name,

@@ -34,12 +34,12 @@ class BulkCreateResponse(BaseModel):
 
 
 class BulkItemSuccess(BaseModel):
-    status: Optional[Literal[BulkItemStatusEnum.OK]] = Field(default=BulkItemStatusEnum.OK)
+    status: Literal[BulkItemStatusEnum.OK] = Field(default=BulkItemStatusEnum.OK)
     id: Any
 
 
 class BulkItemError(BaseModel):
-    status: Optional[Literal[BulkItemStatusEnum.ERROR]] = Field(default=BulkItemStatusEnum.ERROR)
+    status: Literal[BulkItemStatusEnum.ERROR] = Field(default=BulkItemStatusEnum.ERROR)
     detail: str
 
 

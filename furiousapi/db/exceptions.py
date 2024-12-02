@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import TYPE_CHECKING, Any, Type
 
 from furiousapi.core.exceptions import FuriousError

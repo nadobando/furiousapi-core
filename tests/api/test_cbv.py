@@ -1,9 +1,7 @@
 from http import HTTPStatus
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import pytest
-import rich
-from api.models import repository1_dependency
 from fastapi import APIRouter, FastAPI, Query
 from fastapi.params import Depends
 from starlette.testclient import TestClient
@@ -11,6 +9,7 @@ from starlette.testclient import TestClient
 from furiousapi.api import CBV, action
 from furiousapi.api.controllers.mixins import GetRouteMixin, PostRouteMixin
 from furiousapi.api.error_responses import NotFoundHttpErrorDetails
+from tests.api.models import repository1_dependency
 
 if TYPE_CHECKING:
     from fastapi.dependencies.models import Dependant
@@ -23,11 +22,11 @@ class MyCBV(CBV, GetRouteMixin, PostRouteMixin):
     __route_config__: ClassVar = {"get": {"responses": GET_RESPONSES}}
 
     @action("/endpoint1")
-    async def endpoint1(self, q: str = Query(...)):
+    async def endpoint1(self, q: str = Query(...)) -> Any:
         pass
 
     @action("/endpoint2")
-    async def endpoint2(self, q: str = Query(...)):
+    async def endpoint2(self, q: str = Query(...)) -> Any:
         pass
 
     def get(self, q1: str) -> None:
@@ -37,7 +36,7 @@ class MyCBV(CBV, GetRouteMixin, PostRouteMixin):
         pass
 
 
-def test_cbv__when_no_api_router__then_initialize():
+def test_cbv__when_no_api_router__then_initialize() -> None:
     assert isinstance(MyCBV.api_router, APIRouter)
 
 
@@ -70,7 +69,7 @@ def test_cbv__actions_are_defined():
     assert route2.path == "/endpoint2"
     dependant: Dependant = route1.dependant
 
-    assert dependant.query_params[0].type_ == str
+    assert dependant.query_params[0].type_ is str
     assert dependant.query_params[0].name == "q"
     assert dependant.query_params[0].required is True
 
@@ -82,7 +81,6 @@ def test_cbv__when_class_dependency_defined_and_not_passed__then_raise_type_erro
 
 def test_cbv__when_class_dependency_defined__then_init_changed():
     try:
-        rich.print(MyCBV2.api_router.routes)
         MyCBV2(my_dep=Depends(repository1_dependency))  # type: ignore[call-arg]
     except Exception:  # noqa: BLE001
         pytest.fail("something happened")

@@ -1,11 +1,27 @@
+from __future__ import annotations
+
 import uuid
-from enum import Enum
-from typing import Any, Dict, Iterable, List, Optional, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    Type,
+    Union,
+    get_args,
+    get_origin,
+)
 
 from furiousapi.api.pagination import AllPaginationStrategies, PaginatedResponse
-from furiousapi.api.responses import BulkResponseModel
 from furiousapi.core.types import TEntity, TModelFields
 from furiousapi.db import BaseRepository, EntityNotFoundError, SortableFieldEnum
+
+if TYPE_CHECKING:
+    from enum import Enum
+
+    from furiousapi.api.responses import BulkResponseModel
 
 
 # TODO:
@@ -40,6 +56,7 @@ class InMemoryDBRepository(BaseRepository[TEntity]):
         if entity.id in self._store:  # type: ignore[attr-defined]
             raise ValueError(f"Key {entity.id} already exists")  # type: ignore[attr-defined]
         entity.id = str(uuid.uuid4())  # type: ignore[attr-defined]
+
         self._store[entity.id] = entity  # type: ignore[attr-defined]
         return entity
 
@@ -62,3 +79,29 @@ class InMemoryDBRepository(BaseRepository[TEntity]):
 
     async def bulk_update(self, bulk: List[TEntity]) -> List:  # type: ignore[empty-body]
         pass
+
+
+def get_most_inner_class(annotation: Any) -> Type | None:
+    """
+    Recursively retrieves the most inner class from a type annotation.
+
+    Args:
+        annotation: The type annotation to inspect.
+
+    Returns:
+        The most inner class/type.
+    """
+    origin = get_origin(annotation)  # Extract the base of the type
+    args = get_args(annotation)  # Extract the arguments (if any)
+
+    if origin is None and not args:
+        # Base case: This is the most inner type
+        return annotation
+
+    # Recursively process the arguments
+    for arg in args:
+        inner_class = get_most_inner_class(arg)
+        if inner_class is not None:
+            return inner_class
+
+    return None

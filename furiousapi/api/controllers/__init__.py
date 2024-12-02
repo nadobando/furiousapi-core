@@ -10,14 +10,14 @@ from .mixins import (
 )
 
 __all__ = [
-    "BaseModelRouteMixin",
     "CBV",
-    "ModelController",
+    "BaseModelRouteMixin",
+    "BulkCreateModelMixin",
+    "BulkDeleteModelMixin",
+    "BulkUpdateModelMixin",
+    "CreateModelMixin",
     "GetModelMixin",
     "ListModelMixin",
-    "CreateModelMixin",
-    "BulkCreateModelMixin",
-    "BulkUpdateModelMixin",
-    "BulkDeleteModelMixin",
+    "ModelController",
     "action",
 ]

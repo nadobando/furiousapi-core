@@ -1,9 +1,19 @@
+from __future__ import annotations
+
 from functools import lru_cache
 from typing import Any, Dict, Generic, Optional, TypeVar, Union, get_type_hints
 
-from pydantic import BaseModel, BaseSettings, Field, validator
-from pydantic.generics import GenericModel
-from pydantic.networks import MultiHostDsn
+from pydantic import BaseModel, Field, validator
+
+from furiousapi.utils._pydantic_compat import PYDANTIC_V2, BaseSettings, MultiHostDsn
+
+if PYDANTIC_V2:
+    from pydantic import model_validator
+
+    GenericModel = BaseModel
+else:
+    from pydantic import validator
+    from pydantic.generics import GenericModel
 
 # noinspection PyTypeHints
 TConnectionString = TypeVar("TConnectionString", bound=MultiHostDsn)
@@ -17,19 +27,44 @@ class BaseConnectionSettings(GenericModel, Generic[TConnectionString, TConnectio
     connection_string: TConnectionString
     options: Optional[TConnectionOptions]
 
-    @classmethod
-    @validator("connection_string", pre=True)
-    def db_connection(cls, v: TConnectionString, values: Dict[str, Any]) -> Union[TConnectionString, str]:
-        c_str_cls = get_type_hints(cls)["connection_string"]
-        kwargs = c_str_cls._match_url(v).groupdict()  # noqa: SLF001
+    if PYDANTIC_V2:
+        # Use RootValidator for Pydantic v2
+        @classmethod
+        @model_validator(mode="before")
+        def db_connection(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+            connection_string = values.get("connection_string")
+            c_str_cls = get_type_hints(cls)["connection_string"]
 
-        if ((user := values.get("user")) and not kwargs.get("user")) and (
-            (password := values.get("password")) and not kwargs.get("password")
-        ):
-            scheme, sep, url = v.partition("://")
-            return f"{scheme}{sep}{user}:{password}@{url}"
+            # Accessing the MultiHostDsn parsing mechanism
+            kwargs = c_str_cls(url=connection_string).hosts()
 
-        return v
+            user = values.get("user")
+            password = values.get("password")
+
+            if user and not kwargs[0].get("username") and password and not kwargs[0].get("password"):
+                scheme, sep, url = str(connection_string).partition("://")
+                values["connection_string"] = f"{scheme}{sep}{user}:{password}@{url}"
+
+            return values
+
+    else:
+        # Use validator for Pydantic v1
+        @classmethod
+        @validator("connection_string", pre=True)
+        def db_connection(cls, v: TConnectionString, values: Dict[str, Any]) -> Union[TConnectionString, str]:
+            c_str_cls = get_type_hints(cls)["connection_string"]
+
+            # Accessing the MultiHostDsn parsing mechanism
+            kwargs = c_str_cls(url=v).hosts()
+
+            user = values.get("user")
+            password = values.get("password")
+
+            if user and not kwargs[0].get("username") and password and not kwargs[0].get("password"):
+                scheme, sep, url = v.partition("://")  # type: ignore[attr-defined]
+                return f"{scheme}{sep}{user}:{password}@{url}"
+
+            return v
 
 
 class PaginationSettings(BaseSettings):

@@ -3,7 +3,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 from _pytest.fixtures import FixtureRequest
-from api.models import (
+
+from furiousapi.utils._pydantic_compat import PYDANTIC_V2
+from tests.api.models import (
     Model,
     MyModel1,
     MyModel1Controller,
@@ -16,7 +18,7 @@ if TYPE_CHECKING:
     from starlette.testclient import TestClient
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("path", "model", "repository"),
     [
@@ -33,7 +35,7 @@ async def test_create(
     assert actual == model
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("path", "model"),
     [
@@ -48,7 +50,7 @@ async def test_get(test_client: "TestClient", path: str, model: "Model") -> None
     assert response.json() == model.dict(by_alias=True)
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("path", "model"),
     [
@@ -58,13 +60,12 @@ async def test_get(test_client: "TestClient", path: str, model: "Model") -> None
 )
 async def test_list(test_client: "TestClient", path: str, model: "Model") -> None:
     await create_model(model, path, test_client)
-
     list_response = test_client.get(path)
-    assert list_response.status_code == HTTPStatus.OK
+    assert list_response.status_code == HTTPStatus.OK, list_response.json()
     assert list_response.json()["items"][0] == model.dict(by_alias=True)
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("path", "model", "param"),
     [
@@ -75,12 +76,16 @@ async def test_list(test_client: "TestClient", path: str, model: "Model") -> Non
 async def test_update(test_client: "TestClient", path: str, model: "Model", param: str) -> None:
     await create_model(model, path, test_client)
     setattr(model, param, "new_value")
-    response = test_client.put(path, json=model.dict())
+    if PYDANTIC_V2:
+        d = model.model_dump(by_alias=True)
+    else:
+        d = model.dict(by_alias=True)
+    response = test_client.put(path, json=d)
     assert response.status_code == HTTPStatus.OK
     assert response.json() == model.dict(by_alias=True)
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("path", "model"),
     [
@@ -101,7 +106,8 @@ async def test_delete(test_client: "TestClient", path: str, model: "Model") -> N
 async def create_model(model: "Model", path: str, test_client: "TestClient") -> None:
     create_response = test_client.post(path, json=model.dict())
     assert create_response.status_code == HTTPStatus.OK
-    model.id = create_response.json()["_id"]
+    json = create_response.json()
+    model.id = json["_id"]
 
 
 def test_api_router() -> None:

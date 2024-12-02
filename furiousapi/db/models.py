@@ -1,7 +1,12 @@
 import logging
 from typing import Any
 
-from pydantic import BaseConfig, BaseModel, Extra
+from furiousapi.utils._pydantic_compat import PYDANTIC_V2
+
+if PYDANTIC_V2:
+    from pydantic import BaseModel, ConfigDict, Extra
+else:
+    from pydantic import BaseConfig, BaseModel, Extra
 
 try:
     from orjson import orjson
@@ -19,12 +24,19 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+if PYDANTIC_V2:
+    FuriousPydanticConfig = ConfigDict()
+else:
 
-class FuriousPydanticConfig(BaseConfig):
-    extra = Extra.allow
-    json_dumps = json_dumps
-    json_loads = json_loads
+    class FuriousPydanticConfig(BaseConfig):
+        extra = Extra.allow
+        json_dumps = json_dumps
+        json_loads = json_loads
 
 
 class FuriousModel(BaseModel):
-    class Config(FuriousPydanticConfig): ...
+    if PYDANTIC_V2:
+        model_config = FuriousPydanticConfig
+    else:
+
+        class Config(FuriousPydanticConfig): ...  # type: ignore[valid-type,misc]

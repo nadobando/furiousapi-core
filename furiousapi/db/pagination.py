@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import base64
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import (
+    TYPE_CHECKING,
     Any,
     Callable,
     Iterable,
@@ -18,8 +21,10 @@ from typing import (
 from furiousapi.core.config import get_settings
 from furiousapi.core.exceptions import FuriousError
 from furiousapi.core.fields import SortingDirection
-from furiousapi.core.types import TEntity
-from furiousapi.db.fields import SortableFieldEnum
+
+if TYPE_CHECKING:
+    from furiousapi.core.types import TEntity
+    from furiousapi.db.fields import SortableFieldEnum
 
 DEFAULT_PAGE_SIZE = get_settings().pagination.default_size
 logger = logging.getLogger(__name__)
@@ -161,7 +166,7 @@ class BaseCursorPagination(BasePagination, ABC):
         # in keeping with the cursor precedence
 
         # legacy "cursor_arg" config cases always map to after/first
-        reversed_ = False  #
+        reversed_ = False
 
         return CursorInfo(reversed_, cursor, cursor_arg, limit, limit_arg)
 
@@ -170,8 +175,8 @@ class BaseCursorPagination(BasePagination, ABC):
         return False
 
     def get_field_orderings(self) -> List[SortableFieldEnum]:
-        # if self.sorting is None:
-        #     raise AssertionError("sorting must be defined when using cursor pagination")
+        if self.sorting is None:
+            raise AssertionError("sorting must be defined when using cursor pagination")
         if self.sorting:
             op = "__pos__" if self.sorting[-1].direction == SortingDirection.ASCENDING else "__neg__"
         else:

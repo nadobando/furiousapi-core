@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import sys
 from abc import ABCMeta, abstractmethod
 from typing import (
@@ -77,7 +79,7 @@ class RepositoryMeta(ABCMeta):
         for base in reversed(bases):
             config = inherit_config(base.Config, config)
 
-        config_from_namespace = namespace.get("Config", None)
+        config_from_namespace = namespace.get("Config")
         if config_from_namespace:
             config = inherit_config(config_from_namespace, config)
 
@@ -86,17 +88,19 @@ class RepositoryMeta(ABCMeta):
         if isinstance(model, TypeVar):
             return super().__new__(mcs, name, bases, namespace)
 
-        sort: Type["SortableFieldEnum"] = utils.get_model_sort_fields_enum(
+        sort: Type[SortableFieldEnum] = utils.get_model_sort_fields_enum(
             model, include=config.sort_include, exclude=config.sort_exclude
         )
         fields: Type[Enum] = utils.get_model_fields_enum(
             model, include=config.fields_include, exclude=config.fields_exclude
         )
+
         filtering = (
-            config.filter_model is not None
-            and config.filter_model(f"{model.__name__}Filtering", (model, *model.__bases__), {})
-            or model
-        )
+            hasattr(config, "filter_model")
+            and config.filter_model is not None
+            and config.filter_model(f"{model.__name__}Filtering", (model,), {})
+        ) or model
+
         new_namespace = {
             "__model__": model,
             "__sort__": sort,
@@ -146,7 +150,7 @@ class BaseRepository(Generic[TEntity], metaclass=RepositoryMeta):  # type: ignor
         pagination: "AllPaginationStrategies",
         fields: Optional[Iterable["TModelFields"]] = None,
         sorting: Optional[List["SortableFieldEnum"]] = None,
-        filtering: Optional[TEntity] = None,
+        filtering: Any = None,
     ) -> Any: ...
 
     @abstractmethod
@@ -166,3 +170,11 @@ class BaseRepository(Generic[TEntity], metaclass=RepositoryMeta):  # type: ignor
 
     @abstractmethod
     async def bulk_update(self, bulk: List[TEntity]) -> List: ...
+
+    # @abstractmethod
+    # async def query(self, query: Any, pagination: "AllPaginationStrategies", *args, **kwargs) -> Iterable[TEntity]:
+    #     ...
+
+    # @abstractmethod
+    # async def query2(self, filtering: Filter, fields: Set[str], sorting: Set[str]) -> Iterable[TEntity]:
+    #     ...

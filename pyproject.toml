@@ -2,6 +2,22 @@
 build-backend = "poetry.core.masonry.api"
 requires = ["poetry-core"]
 
+[lint.flake8-annotations]
+mypy-init-return = true
+
+[lint.flake8-unused-arguments]
+ignore-variadic-names = true
+
+[lint.per-file-ignores]
+"furiousapi/api/controllers/base.py" = ["N804"]
+"furiousapi/api/controllers/mixins.py" = ["N805"]
+"furiousapi/db/controllers/base.py" = ["N804"]
+"furiousapi/db/fields.py" = ["N805"]
+# "furiousapi/core/db/mongo/models.py" = ["N804"]
+"furiousapi/db/metaclasses.py" = ["N804"]
+"tests/*" = ["ANN201", "S101", "DTZ001", "PLR0913", "S101"]
+lint.pyupgrade.keep-runtime-typing = true
+
 [tool.autopep8]
 aggressive = 3
 # ignore = "E501,W6"  # or ["E501", "W6"]
@@ -104,14 +120,17 @@ version = "0.1.0-dev.1"
 [tool.poetry.dependencies]
 anyio = "^4.0.0"
 fastapi = "^0"
-pydantic = "^1.10.13"
+pydantic = ">=1.10.13,<3.0.0"
+pydantic-settings = {version = "*", optional = true}
 # core
-python = "^3.9.5"
-typing-extensions = "^4.8.0"
+python = ">=3.9.5,<=3.13"
+
+[tool.poetry.extras]
+pydantic-settings = ["pydantic-settings"]
 
 [tool.poetry.group.dev.dependencies]
 coverage = "^7.1.0"
-greenlet = "^2.0.2"
+# greenlet = "*"
 httpx = "^0.23.3"
 mypy = "^1.6"
 pre-commit = "^3.0.1"
@@ -119,6 +138,7 @@ pytest = "^7.4.2"
 pytest-asyncio = "^0.20.3"
 pytest-cov = "^4.0.0"
 pytest-xdist = {version = "^3.2.1", extras = ["psutil"]}
+tox = "^4"
 
 [tool.poetry.plugins]
 
@@ -156,9 +176,14 @@ exclude = [
   "node_modules",
   "venv"
 ]
-ignore = [
+line-length = 120
+# mypy-init-return = true
+target-version = "py38"
+lint.ignore = [
+  "UP",
+  "SIM108",
+  "ANN204",
   "D",
-  "ANN101",
   "A003",
   "B008",
   "B905",
@@ -168,7 +193,6 @@ ignore = [
   "ANN002",
   "EM101",
   "TRY003",
-  "ANN102",
   "UP035",
   "G004",
   "EM102",
@@ -177,27 +201,17 @@ ignore = [
   "TD",
   "FIX002"
 ]
-line-length = 120
-select = ["ALL"]
-target-version = "py38"
+lint.select = ["ALL"]
+# lint.flake8-annotations.suppress-dummy-args
+lint.flake8-unused-arguments.ignore-variadic-names = true
 
-[tool.ruff.flake8-annotations]
-mypy-init-return = true
-
-[tool.ruff.flake8-unused-arguments]
-ignore-variadic-names = true
-
-[tool.ruff.per-file-ignores]
+[tool.ruff.lint.per-file-ignores]
 "furiousapi/api/controllers/base.py" = ["N804"]
 "furiousapi/api/controllers/mixins.py" = ["N805"]
 "furiousapi/db/controllers/base.py" = ["N804"]
 "furiousapi/db/fields.py" = ["N805"]
-# "furiousapi/core/db/mongo/models.py" = ["N804"]
 "furiousapi/db/metaclasses.py" = ["N804"]
-"tests/*" = ["ANN201", "S101", "DTZ001", "PLR0913"]
-
-[tool.ruff.pyupgrade]
-keep-runtime-typing = true
+"tests/*" = ["ANN201", "S101", "DTZ001", "PLR0913", "S101"]
 
 [tool.semantic_release]
 version_toml = [
