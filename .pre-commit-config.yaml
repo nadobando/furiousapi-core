@@ -125,10 +125,25 @@ repos:
 #        files: toml
 
 
-#
-#  - repo: https://github.com/python-poetry/poetry
-#    rev: '1.3.0'
-#    hooks:
-#      - id: poetry-check
-#      - id: poetry-lock
-#      - id: poetry-export
+  - repo: local
+    hooks:
+      - id: poetry-lock
+        name: poetry-lock
+        description: run poetry install to install dependencies from the lock file
+        entry: poetry lock
+        args:
+          - --no-update
+        language: python
+        pass_filenames: false
+        files: pyproject.toml
+
+
+      - id: poetry-export
+        name: poetry-export
+        entry: poetry export
+        args:
+          - -f
+          - requirements.txt
+          - -o requirements.txt
+        language: python
+        pass_filenames: false

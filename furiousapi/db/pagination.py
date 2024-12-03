@@ -21,6 +21,7 @@ from typing import (
 from furiousapi.core.config import get_settings
 from furiousapi.core.exceptions import FuriousError
 from furiousapi.core.fields import SortingDirection
+from furiousapi.utils._pydantic_compat import PYDANTIC_V2
 
 if TYPE_CHECKING:
     from furiousapi.core.types import TEntity
@@ -132,7 +133,7 @@ class BaseCursorPagination(BasePagination, ABC):
     __json_loads__: Callable
     __json_dumps__: Callable
     #: The name of the query parameter to inspect for the cursor value.
-    delimiter = "$$"
+    delimiter = "||"
 
     def __init__(
         self,
@@ -206,7 +207,10 @@ class BaseCursorPagination(BasePagination, ABC):
         return tuple((field, value) for field, value in zip(field_orderings, parsed_cursor))
 
     def render_cursor(self, item: TEntity, column_fields: Iterable[SortableFieldEnum]) -> str:
-        cursor = tuple(self.__json_dumps__(getattr(item, field.value), default=str) for field in column_fields)
+        if PYDANTIC_V2:
+            cursor = tuple(self.__json_dumps__(getattr(item, field.value)).decode() for field in column_fields)
+        else:
+            cursor = tuple(self.__json_dumps__(getattr(item, field.value), default=str) for field in column_fields)
         return self.encode_cursor(cursor)
 
     def encode_cursor(self, cursor: Tuple[str, ...]) -> str:
