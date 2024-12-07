@@ -19,18 +19,20 @@ from fastapi import APIRouter, Path, Query
 from pydantic import BaseModel, conlist
 
 from furiousapi.api import error_responses
+from furiousapi.api.controllers.utils import _prepare_endpoint, add_model_method_name
 from furiousapi.api.pagination import CursorPaginationParams, PaginatedResponse
 from furiousapi.api.responses import BulkResponseModel, PartialModelResponse
 from furiousapi.db.metaclasses import model_query
-from furiousapi.db.repository import BaseRepository  # noqa: TCH001
-
-from .utils import _prepare_endpoint, add_model_method_name
+from furiousapi.db.repository import BaseRepository  # noqa: TC001
+from furiousapi.pydantic import PYDANTIC_V2
 
 if TYPE_CHECKING:
+    from furiousapi.api.controllers.base import (  # noqa: F401,RUF100
+        ModelController,
+        Sentinel,
+    )
     from furiousapi.core.types import TEntity, TModelFields
     from furiousapi.db.fields import SortableFieldEnum
-
-    from .base import ModelController, Sentinel  # noqa: F401,RUF100
 
 
 class BaseRouteMixin(ABC):
@@ -50,7 +52,7 @@ class BaseRouteMixin(ABC):
 
 class RouteMixin(BaseRouteMixin, ABC):
     @staticmethod
-    def _prepare_route(cls: Type[RouteMixin], endpoint: Callable[..., Any]) -> None:
+    def _prepare_route(cls: Type[RouteMixin], endpoint: Callable[..., Any]) -> None:  # noqa: PLW0211
         route_params = cls._get_route_params(endpoint.__name__)
         api_router_method = getattr(cls.api_router, endpoint.__name__)
         endpoint = getattr(cls, endpoint.__name__)
@@ -153,8 +155,13 @@ class GetModelMixin(BaseModelRouteMixin):
 
         signature = inspect.signature(cls.get)
         parameters = signature.parameters.copy()
+        if PYDANTIC_V2:
+            list_anno1 = conlist(cls.__repository_cls__.__fields__, min_length=1)
+        else:
+            list_anno1 = conlist(cls.__repository_cls__.__fields__, min_items=1)  # type: ignore[call-arg]
+
         parameters["fields"] = parameters["fields"].replace(
-            annotation=Optional[conlist(cls.__repository_cls__.__fields__, min_items=1)],
+            annotation=Optional[list_anno1],
         )
 
         cls.get.__signature__ = signature.replace(parameters=list(parameters.values()))  # type: ignore[attr-defined]
@@ -174,6 +181,7 @@ class GetModelMixin(BaseModelRouteMixin):
 
 
 class ListModelMixin(BaseModelRouteMixin):
+
     @classmethod
     def __bootstrap__(cls, *args, **kwargs) -> None:
         super().__bootstrap__(*args, **kwargs)
@@ -181,18 +189,26 @@ class ListModelMixin(BaseModelRouteMixin):
 
         signature = inspect.signature(cls.list)
         parameters = signature.parameters.copy()
+        if PYDANTIC_V2:
+            list_anno1 = conlist(cls.__repository_cls__.__fields__, min_length=1)
+            list_anno2 = conlist(cls.__repository_cls__.__sort__, min_length=1)
+        else:
+            list_anno1 = conlist(cls.__repository_cls__.__fields__, min_items=1)  # type: ignore[call-arg]
+            list_anno2 = conlist(cls.__repository_cls__.__sort__, min_items=1)  # type: ignore[call-arg]
+
         parameters["fields"] = parameters["fields"].replace(
-            annotation=Optional[conlist(cls.__repository_cls__.__fields__, min_items=1)],
+            annotation=Optional[list_anno1],
         )
 
         parameters["sorting"] = parameters["sorting"].replace(
-            annotation=Optional[conlist(cls.__repository_cls__.__sort__, min_items=1)],
+            annotation=Optional[list_anno2],
             default=Query(None, examples=cls.__repository_cls__.__sort__.examples),
         )
 
-        parameters["filtering"] = parameters["filtering"].replace(
-            default=cls.__repository_cls__.Config.model_to_query(cls.__repository_cls__.__filtering__),
-        )
+        if hasattr(cls.__repository_cls__, "__filtering__"):
+            parameters["filtering"].replace(
+                default=cls.__repository_cls__.Config.model_to_query(cls.__repository_cls__.__filtering__),
+            )
         cls.list.__signature__ = signature.replace(parameters=list(parameters.values()))  # type: ignore[attr-defined]
         params = {"response_model": PaginatedResponse[cls.__repository_cls__.__model__]}  # type: ignore[name-defined]
 
@@ -207,8 +223,8 @@ class ListModelMixin(BaseModelRouteMixin):
         pagination=model_query(  # noqa: ANN001 todo: currently creates a bug which prevents test from running
             CursorPaginationParams
         ),
-        fields: Optional[List[TModelFields]] = Query(None),  # type: ignore[assignment]
-        sorting: Optional[List[SortableFieldEnum]] = Query(None),  # type: ignore[assignment]
+        fields: conlist(TModelFields, min_length=1) | None = Query(None),  # type: ignore[valid-type]
+        sorting: conlist(SortableFieldEnum, min_length=1) | None = Query(None),  # type: ignore[valid-type]
         filtering=None,  # noqa: ANN001 todo: currently creates a bug which prevents test from running
     ) -> PaginatedResponse:
         pagination = cast(CursorPaginationParams, pagination)
@@ -271,10 +287,10 @@ class UpdateModelMixin(BaseModelRouteMixin):
         params = {"responses": responses, "response_model": cls.__repository_cls__.__model__}
         route_params = cls._get_route_params("update")
         params.update(route_params)
-        cls.api_router.put("/", **params)(cls.update)  # type: ignore[arg-type]
+        cls.api_router.put("/{id}", **params)(cls.update)  # type: ignore[arg-type]
 
-    async def update(self, model: Union[BaseModel, TEntity]) -> Any:
-        return await self.repository.update(model)
+    async def update(self, model: Union[BaseModel, TEntity], id_: Any = Path(alias="id")) -> Any:
+        return await self.repository.update(id_, model)
 
 
 class DeleteModelMixin(BaseModelRouteMixin):
@@ -298,7 +314,7 @@ class BulkBase(BaseModelRouteMixin, ABC):
     __bulk_route__ = "bulk"
 
     @staticmethod
-    def set_route(cls, method, handler: Callable, **params) -> None:  # noqa: ANN001
+    def set_route(cls, method, handler: Callable, **params) -> None:  # noqa: ANN001,PLW0211
         if method := getattr(cls.api_router, method):
             method(f"/{cls.__bulk_route__}", **params)(handler)
         else:

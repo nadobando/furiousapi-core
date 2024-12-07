@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from enum import Enum, EnumMeta
 from types import DynamicClassAttribute
 from typing import Any, Dict, List, Optional
@@ -5,6 +7,13 @@ from typing import Any, Dict, List, Optional
 import pydantic.errors
 
 from furiousapi.core.fields import SortingDirection
+from furiousapi.pydantic import PYDANTIC_V2
+
+if PYDANTIC_V2:
+    from typing import Type
+
+    from pydantic import GetCoreSchemaHandler
+    from pydantic_core import core_schema
 
 
 class GenerateByFieldEnum(str, Enum):
@@ -26,7 +35,7 @@ class SortableFieldsEnumMeta(EnumMeta):
         if names is None:
             field, _, direction = value.partition(cls.__delimiter__)
             instance: SortableFieldEnum = super().__call__(field)
-            instance.__direction__ = direction and SortingDirection(direction) or cls.__default__
+            instance.__direction__ = (direction and SortingDirection(direction)) or cls.__default__
             return instance
         return super().__call__(value, names, **kwargs)
 
@@ -82,14 +91,47 @@ class SortableFieldEnum(str, Enum, metaclass=SortableFieldsEnumMeta):
     def direction(self) -> SortingDirection:
         return self.__direction__
 
-    @classmethod
-    def __get_validators__(cls) -> Any:
-        yield cls.validate
+    if PYDANTIC_V2:
 
-    @classmethod
-    def validate(cls, value: str) -> "SortableFieldEnum":
-        field, _, direction = value.partition(":")
-        possible_values = set(cls)
-        if field not in possible_values:
-            raise pydantic.errors.EnumMemberError(enum_values=possible_values)
-        return cls(value)
+        @classmethod
+        def __get_pydantic_core_schema__(
+            cls, source: Type[Any], handler: GetCoreSchemaHandler
+        ) -> core_schema.CoreSchema:
+            if not issubclass(source, SortableFieldEnum):
+                raise TypeError("")
+
+            return core_schema.no_info_after_validator_function(
+                cls._validate,
+                core_schema.str_schema(),
+                serialization=core_schema.plain_serializer_function_ser_schema(
+                    cls._serialize,
+                    info_arg=False,
+                    return_schema=core_schema.str_schema(),
+                ),
+            )
+
+        @staticmethod
+        def _validate(value: str) -> "SortableFieldEnum":
+            field, _, direction = value.partition(":")
+            possible_values = set(SortableFieldEnum)
+            if field not in possible_values:
+                raise pydantic.errors.EnumMemberError(enum_values=possible_values)
+            return SortableFieldEnum(value)
+
+        @staticmethod
+        def _serialize(value: "SortableFieldEnum") -> str:
+            return value
+
+    else:
+
+        @classmethod
+        def __get_validators__(cls) -> Any:
+            yield cls.validate
+
+        @classmethod
+        def validate(cls, value: str) -> "SortableFieldEnum":
+            field, _, direction = value.partition(":")
+            possible_values = set(cls)
+            if field not in possible_values:
+                raise pydantic.errors.EnumMemberError(enum_values=possible_values)
+            return cls(value)
