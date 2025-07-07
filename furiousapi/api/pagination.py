@@ -1,15 +1,9 @@
 from __future__ import annotations
 
-from abc import abstractmethod
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Generic, List, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, Generic, List, Literal, Optional, Union
 
-from pydantic import ConfigDict, Field
-
-from furiousapi.core.config import get_settings
 from furiousapi.core.types import TEntity
-from furiousapi.db.metaclasses import AllOptionalMeta
-from furiousapi.db.models import FuriousModel
 from furiousapi.pydantic import PYDANTIC_V2
 
 if PYDANTIC_V2:
@@ -21,8 +15,6 @@ if TYPE_CHECKING:
     if PYDANTIC_V2:
         from pydantic.main import IncEx
     from pydantic.typing import AbstractSetIntStr, DictStrAny, MappingIntStrAny
-
-SETTINGS = get_settings()
 
 
 class PaginatedResponse(GenericModel, Generic[TEntity]):  # type: ignore[misc]
@@ -40,12 +32,13 @@ class PaginatedResponse(GenericModel, Generic[TEntity]):  # type: ignore[misc]
             include: Optional[IncEx] = None,
             exclude: Optional[IncEx] = None,
             context: Optional[Any] = None,
-            by_alias: bool = False,
+            by_alias: Optional[bool] = False,
             exclude_unset: bool = False,
             exclude_defaults: bool = False,
             exclude_none: bool = False,
             round_trip: bool = False,
-            warnings: Union[bool, Literal["none", "warn", "error"]] = True,
+            warnings: Union[Literal["none", "warn", "error"], bool] = False,
+            fallback: Optional[Callable[[Any], Any]] = None,  # noqa: ARG002
             serialize_as_any: bool = False,
         ) -> dict[str, Any]:
             return super().model_dump(
@@ -91,40 +84,4 @@ class PaginationStrategyEnum(str, Enum):
     CURSOR = "cursor"
 
 
-class BasePaginationParams(FuriousModel, metaclass=AllOptionalMeta):
-    limit: int = Field(
-        SETTINGS.pagination.default_size,
-        le=SETTINGS.pagination.max_size,
-        description="limit the result set",
-    )
-    if PYDANTIC_V2:
-        model_config = ConfigDict(use_enum_values=True)
-    else:
-
-        class Config:
-            use_enum_values = True
-
-    @property
-    @abstractmethod
-    def next(self) -> Any: ...
-
-
-class OffsetPaginationParams(BasePaginationParams):
-    offset: Optional[int]
-    pagination_type: Literal[PaginationStrategyEnum.OFFSET] = PaginationStrategyEnum.OFFSET
-
-    @property
-    def next(self) -> int:
-        return self.offset or 0
-
-
-class CursorPaginationParams(BasePaginationParams):
-    pagination_type: Literal[PaginationStrategyEnum.CURSOR] = PaginationStrategyEnum.CURSOR
-    next_: str | None = Field(None, alias="next", description="next record")
-
-    @property
-    def next(self) -> Optional[str]:
-        return self.next_
-
-
-AllPaginationStrategies = Union[CursorPaginationParams, OffsetPaginationParams]
+PaginationStrategy = Union[PaginationStrategyEnum, Literal["cursor", "offset"]]

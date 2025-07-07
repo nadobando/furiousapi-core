@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from fastapi import HTTPException
+from fastapi._compat import PYDANTIC_V2
 
 from furiousapi.api import error_responses
 from furiousapi.core.exceptions import FuriousError
@@ -14,9 +15,11 @@ class FuriousAPIError(HTTPException, FuriousError):
         error_response: error_responses.HttpErrorResponse,
         headers: Optional[Dict[str, Any]] = None,
     ) -> None:
-        HTTPException.__init__(
-            self, status_code=error_response.status_code, detail=error_response.dict(by_alias=True), headers=headers
-        )
+        if PYDANTIC_V2:
+            details = error_response.model_dump(by_alias=True, mode="json")
+        else:
+            details = error_response.dict(by_alias=True)
+        HTTPException.__init__(self, status_code=error_response.status_code, detail=details, headers=headers)
 
 
 # 400

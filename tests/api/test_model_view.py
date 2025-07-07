@@ -47,7 +47,10 @@ async def test_get(test_client: "TestClient", path: str, model: "Model") -> None
     await create_model(model, path, test_client)
     response = test_client.get(f"{path}/{model.id}")
     assert response.status_code == HTTPStatus.OK
-    assert response.json() == model.dict(by_alias=True)
+    if PYDANTIC_V2:
+        assert response.json() == model.model_dump(by_alias=True)
+    else:
+        assert response.json() == model.dict(by_alias=True)
 
 
 @pytest.mark.asyncio
@@ -62,7 +65,10 @@ async def test_list(test_client: "TestClient", path: str, model: "Model") -> Non
     await create_model(model, path, test_client)
     list_response = test_client.get(path)
     assert list_response.status_code == HTTPStatus.OK, list_response.json()
-    assert list_response.json()["items"][0] == model.dict(by_alias=True)
+    if PYDANTIC_V2:
+        assert list_response.json()["items"][0] == model.model_dump(by_alias=True)
+    else:
+        assert list_response.json()["items"][0] == model.dict(by_alias=True)
 
 
 @pytest.mark.asyncio
@@ -83,7 +89,7 @@ async def test_update(test_client: "TestClient", path: str, model: "Model", para
     assert model.id
     response = test_client.put(path + "/" + model.id, json=d)
     assert response.status_code == HTTPStatus.OK
-    assert response.json() == model.dict(by_alias=True)
+    assert response.json() == d
 
 
 @pytest.mark.asyncio
@@ -105,7 +111,11 @@ async def test_delete(test_client: "TestClient", path: str, model: "Model") -> N
 
 
 async def create_model(model: "Model", path: str, test_client: "TestClient") -> None:
-    create_response = test_client.post(path, json=model.dict())
+    if PYDANTIC_V2:
+        model_dict = model.model_dump(mode="json")
+    else:
+        model_dict = model.dict()
+    create_response = test_client.post(path, json=model_dict)
     assert create_response.status_code == HTTPStatus.OK
     json = create_response.json()
     model.id = json["_id"]

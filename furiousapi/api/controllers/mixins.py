@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 from abc import ABC, abstractmethod
+from enum import Enum  # noqa: TC003
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -9,7 +10,9 @@ from typing import (
     ClassVar,
     Dict,
     List,
+    Literal,
     Optional,
+    Set,
     Type,
     Union,
     cast,
@@ -20,11 +23,13 @@ from pydantic import BaseModel, conlist
 
 from furiousapi.api import error_responses
 from furiousapi.api.controllers.utils import _prepare_endpoint, add_model_method_name
-from furiousapi.api.pagination import CursorPaginationParams, PaginatedResponse
+from furiousapi.api.pagination import PaginatedResponse, PaginationStrategyEnum
 from furiousapi.api.responses import BulkResponseModel, PartialModelResponse
-from furiousapi.db.metaclasses import model_query
+from furiousapi.core import config
+from furiousapi.db import utils
 from furiousapi.db.repository import BaseRepository  # noqa: TC001
 from furiousapi.pydantic import PYDANTIC_V2
+from furiousapi.rql.params import AQuery, RQLQueryStr
 
 if TYPE_CHECKING:
     from furiousapi.api.controllers.base import (  # noqa: F401,RUF100
@@ -32,7 +37,6 @@ if TYPE_CHECKING:
         Sentinel,
     )
     from furiousapi.core.types import TEntity, TModelFields
-    from furiousapi.db.fields import SortableFieldEnum
 
 
 class BaseRouteMixin(ABC):
@@ -148,6 +152,10 @@ class BaseModelRouteMixin(BaseRouteMixin, ABC):
 
 
 class GetModelMixin(BaseModelRouteMixin):
+    get_model: ClassVar[Optional[Type[BaseModel]]] = None
+    get_fields: ClassVar[Optional[Type["Enum"]]] = None
+    get_fields_recursive: ClassVar[bool] = False
+
     @classmethod
     def __bootstrap__(cls, **kwargs) -> None:
         super().__bootstrap__()
@@ -155,18 +163,25 @@ class GetModelMixin(BaseModelRouteMixin):
 
         signature = inspect.signature(cls.get)
         parameters = signature.parameters.copy()
+        if not cls.get_fields:
+            model = utils.get_model_fields_enum(cls.__repository_cls__.__model__, recursive=cls.get_fields_recursive)
+            cls.get_fields = model
+
         if PYDANTIC_V2:
-            list_anno1 = conlist(cls.__repository_cls__.__fields__, min_length=1)
+            list_anno1 = conlist(cls.get_fields, min_length=1)
         else:
-            list_anno1 = conlist(cls.__repository_cls__.__fields__, min_items=1)  # type: ignore[call-arg]
+            list_anno1 = conlist(cls.get_fields, min_items=1)  # type: ignore[call-arg]
 
         parameters["fields"] = parameters["fields"].replace(
             annotation=Optional[list_anno1],
         )
+        signature_params: Dict[str, Any] = {"parameters": list(parameters.values())}
+        if cls.get_model:
+            signature_params["return_annotation"] = cls.get_model
 
-        cls.get.__signature__ = signature.replace(parameters=list(parameters.values()))  # type: ignore[attr-defined]
+        cls.get.__signature__ = signature.replace(**signature_params)  # type: ignore[attr-defined]
         responses = {404: {"model": error_responses.NotFoundHttpErrorDetails, "content": {"application/json": {}}}}
-        params = {"responses": responses, "response_model": cls.__repository_cls__.__model__}
+        params = {"responses": responses, "response_model": cls.get_model or cls.__repository_cls__.__model__}
         route_params = cls._get_route_params("get")
         params.update(route_params)
         add_model_method_name(cast("Type[ModelController]", cls), params)
@@ -174,13 +189,23 @@ class GetModelMixin(BaseModelRouteMixin):
         cls.api_router.get("/{id}", **params)(cls.get)  # type: ignore[arg-type]
 
     async def get(
-        self, id_: str = Path(..., alias="id"), fields: Optional[List[TModelFields]] = Query(None)
+        self,
+        id_: str = Path(..., alias="id"),
+        fields: Optional[List[TModelFields]] = Query(None),
+        # *args,
+        # **kwargs,
     ) -> PartialModelResponse:
         result: Optional[BaseModel] = await self.repository.get(id_, fields)
         return PartialModelResponse(result)
 
 
 class ListModelMixin(BaseModelRouteMixin):
+    __filtering__: Optional[Any] = None
+    __allowed_paginators__: ClassVar[Set[PaginationStrategyEnum]] = {
+        PaginationStrategyEnum.CURSOR,
+        PaginationStrategyEnum.OFFSET,
+    }
+    __include_in_schema_pagination_param__: ClassVar[bool] = True
 
     @classmethod
     def __bootstrap__(cls, *args, **kwargs) -> None:
@@ -189,26 +214,8 @@ class ListModelMixin(BaseModelRouteMixin):
 
         signature = inspect.signature(cls.list)
         parameters = signature.parameters.copy()
-        if PYDANTIC_V2:
-            list_anno1 = conlist(cls.__repository_cls__.__fields__, min_length=1)
-            list_anno2 = conlist(cls.__repository_cls__.__sort__, min_length=1)
-        else:
-            list_anno1 = conlist(cls.__repository_cls__.__fields__, min_items=1)  # type: ignore[call-arg]
-            list_anno2 = conlist(cls.__repository_cls__.__sort__, min_items=1)  # type: ignore[call-arg]
-
-        parameters["fields"] = parameters["fields"].replace(
-            annotation=Optional[list_anno1],
-        )
-
-        parameters["sorting"] = parameters["sorting"].replace(
-            annotation=Optional[list_anno2],
-            default=Query(None, examples=cls.__repository_cls__.__sort__.examples),
-        )
-
-        if hasattr(cls.__repository_cls__, "__filtering__"):
-            parameters["filtering"].replace(
-                default=cls.__repository_cls__.Config.model_to_query(cls.__repository_cls__.__filtering__),
-            )
+        if cls.__filtering__:
+            parameters["query"] = parameters["query"].replace(default=RQLQueryStr(cls.__filtering__, None, alias="q"))
         cls.list.__signature__ = signature.replace(parameters=list(parameters.values()))  # type: ignore[attr-defined]
         params = {"response_model": PaginatedResponse[cls.__repository_cls__.__model__]}  # type: ignore[name-defined]
 
@@ -220,16 +227,28 @@ class ListModelMixin(BaseModelRouteMixin):
 
     async def list(
         self,
-        pagination=model_query(  # noqa: ANN001 todo: currently creates a bug which prevents test from running
-            CursorPaginationParams
+        limit: int = Query(
+            config.pagination.default_size,
+            le=config.pagination.max_size,
+            description="limit the result set",
         ),
-        fields: conlist(TModelFields, min_length=1) | None = Query(None),  # type: ignore[valid-type]
-        sorting: conlist(SortableFieldEnum, min_length=1) | None = Query(None),  # type: ignore[valid-type]
-        filtering=None,  # noqa: ANN001 todo: currently creates a bug which prevents test from running
+        next_: Union[int, str, None] = AQuery(None, alias="next"),
+        query: str = Query(None, alias="q"),
+        pagination_type: Literal[PaginationStrategyEnum.CURSOR, PaginationStrategyEnum.OFFSET] = Query(
+            PaginationStrategyEnum.CURSOR, include_in_schema=__include_in_schema_pagination_param__
+        ),
     ) -> PaginatedResponse:
-        pagination = cast(CursorPaginationParams, pagination)
-        res = cast(BaseModel, await self.repository.list(pagination, fields, sorting, filtering))
-        return cast(PaginatedResponse, PartialModelResponse(res))
+        if query:
+            if self.__filtering__:
+                q = self.__filtering__.parse(query, pagination_type)  # type: ignore[attr-defined]
+            else:
+                q = query
+        else:
+            q = self.repository.query()
+        paginator = self.repository.get_paginator(pagination_type)
+        res = cast("PaginatedResponse", await paginator.get_page(q, limit, next_))
+
+        return cast("PaginatedResponse", PartialModelResponse(res))
 
 
 class CreateModelMixin(BaseModelRouteMixin):

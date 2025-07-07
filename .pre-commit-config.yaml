@@ -14,7 +14,7 @@ repos:
 
 
   - repo: https://github.com/psf/black
-    rev: 24.10.0
+    rev: 25.1.0
     hooks:
       - id: black
         args:
@@ -40,7 +40,7 @@ repos:
       - id: python-check-blanket-noqa
 
   - repo: https://github.com/charliermarsh/ruff-pre-commit
-    rev: v0.8.1
+    rev: v0.11.10
     hooks:
       - id: ruff
         args:
@@ -49,7 +49,7 @@ repos:
           - --fix
 
   - repo: https://github.com/PyCQA/bandit
-    rev: 1.8.0
+    rev: 1.8.3
     hooks:
       - id: bandit
         types:
@@ -63,7 +63,7 @@ repos:
           - toml
 
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.13.0
+    rev: v1.15.0
     hooks:
       - id: mypy
         additional_dependencies:
@@ -136,14 +136,3 @@ repos:
         language: python
         pass_filenames: false
         files: pyproject.toml
-
-
-      - id: poetry-export
-        name: poetry-export
-        entry: poetry export
-        args:
-          - -f
-          - requirements.txt
-          - -o requirements.txt
-        language: python
-        pass_filenames: false

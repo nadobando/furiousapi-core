@@ -1,3 +1,5 @@
+from typing import Type
+
 import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
@@ -9,6 +11,7 @@ from furiousapi.api.exception_handling import (
 from furiousapi.api.exceptions import FuriousAPIError
 from furiousapi.db.exceptions import FuriousEntityError
 from tests.api.models import (
+    MyModel1,
     MyModel1Controller,
     MyModel1Repository,
     MyModel2Controller,
@@ -16,6 +19,11 @@ from tests.api.models import (
     repository1_dependency,
     repository2_dependency,
 )
+
+
+@pytest.fixture
+def model() -> Type[MyModel1]:
+    return MyModel1
 
 
 @pytest.fixture

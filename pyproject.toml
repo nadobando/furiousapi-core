@@ -2,22 +2,6 @@
 build-backend = "poetry.core.masonry.api"
 requires = ["poetry-core"]
 
-[lint.flake8-annotations]
-mypy-init-return = true
-
-[lint.flake8-unused-arguments]
-ignore-variadic-names = true
-
-[lint.per-file-ignores]
-"furiousapi/api/controllers/base.py" = ["N804"]
-"furiousapi/api/controllers/mixins.py" = ["N805"]
-"furiousapi/db/controllers/base.py" = ["N804"]
-"furiousapi/db/fields.py" = ["N805"]
-# "furiousapi/core/db/mongo/models.py" = ["N804"]
-"furiousapi/db/metaclasses.py" = ["N804"]
-"tests/*" = ["ANN201", "S101", "DTZ001", "PLR0913", "S101"]
-lint.pyupgrade.keep-runtime-typing = true
-
 [tool.autopep8]
 aggressive = 3
 # ignore = "E501,W6"  # or ["E501", "W6"]
@@ -59,7 +43,7 @@ exclude_lines = [
 
 [tool.coverage.run]
 branch = true
-include = [
+source = [
     "*/furiousapi/*"
 ]
 
@@ -121,6 +105,7 @@ version = "0.1.0-dev.1"
 anyio = "^4.0.0"
 fastapi = "^0"
 pydantic = ">=1.10.13,<3.0.0"
+lark = "*"
 # core
 python = ">=3.9.5,<=3.13"
 
@@ -149,7 +134,7 @@ warn_required_dynamic_aliases = true
 warn_untyped_fields = true
 
 [tool.pytest.ini_options]
-addopts = "-ra"
+addopts = "-ra --cov=furiousapi --cov-report=term-missing"
 testpaths = [
     "tests"
 ]
@@ -202,8 +187,7 @@ lint.ignore = [
     "FIX002"
 ]
 lint.select = ["ALL"]
-# lint.flake8-annotations.suppress-dummy-args
-lint.flake8-unused-arguments.ignore-variadic-names = true
+
 
 [tool.ruff.lint.per-file-ignores]
 "furiousapi/api/controllers/base.py" = ["N804"]
@@ -212,6 +196,15 @@ lint.flake8-unused-arguments.ignore-variadic-names = true
 "furiousapi/db/fields.py" = ["N805"]
 "furiousapi/db/metaclasses.py" = ["N804"]
 "tests/*" = ["ANN201", "S101", "DTZ001", "PLR0913", "S101"]
+
+[tool.ruff.lint.flake8-annotations]
+mypy-init-return = true
+
+[tool.ruff.lint.flake8-unused-arguments]
+ignore-variadic-names = true
+
+[tool.ruff.lint.pyupgrade]
+keep-runtime-typing = true
 
 [tool.semantic_release]
 version_toml = [

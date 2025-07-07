@@ -53,10 +53,12 @@ def duplicate_function(original_function: Callable) -> Callable:
     :param original_function: The function to duplicate.
     :return: A new function with the same behavior as the original.
     """
-    return types.FunctionType(
+    function_type = types.FunctionType(
         original_function.__code__,
         original_function.__globals__,
         name=original_function.__name__,
         argdefs=deepcopy(original_function.__defaults__),
         closure=original_function.__closure__,
     )
+    function_type.__annotations__ = original_function.__annotations__.copy()
+    return function_type

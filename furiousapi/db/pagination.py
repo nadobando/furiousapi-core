@@ -14,46 +14,29 @@ from typing import (
     Protocol,
     Set,
     Tuple,
-    Type,
     Union,
 )
 
-from furiousapi.core.config import get_settings
 from furiousapi.core.exceptions import FuriousError
-from furiousapi.core.fields import SortingDirection
 from furiousapi.pydantic import PYDANTIC_V2
 
 if TYPE_CHECKING:
-    from furiousapi.core.types import TEntity
-    from furiousapi.db.fields import SortableFieldEnum
+    from furiousapi.api.pagination import PaginatedResponse
+    from furiousapi.core.types import Query, Sorting, TEntity
 
-DEFAULT_PAGE_SIZE = get_settings().pagination.default_size
 logger = logging.getLogger(__name__)
 
 
 class BasePagination:
+
     def get_limit(self, next_: Any) -> int:
         return self.validate_limit(next_)
 
     def validate_limit(self, requested_limit: int) -> int:
-        """
-        Validates the requested limit and returns the limit value to use.
-
-        Args:
-            requested_limit (int or None): The requested limit value.
-
-        Returns:
-            int: The validated limit value.
-
-        Raises:
-            FuriousError: If the requested limit is invalid or exceeds the maximum limit.
-        """
         return requested_limit
 
-
-class PaginatorMixin(ABC):
     @abstractmethod
-    async def get_page(self, *args, **kwargs) -> Any:
+    async def get_page(self, query: Query, limit: int, *args, **kwargs) -> PaginatedResponse[TEntity]:
         """
         Retrieves a page of data.
 
@@ -84,18 +67,6 @@ class PagePagination(OffsetPagination, ABC):
 
     @staticmethod
     def validate_page(requested_page: int) -> int:
-        """
-        Validates the requested page and returns the page number to use.
-
-        Args:
-            requested_page (int or None): The requested page number.
-
-        Returns:
-            int: The validated page number.
-
-        Raises:
-            InvalidPageError: If the requested page is invalid.
-        """
         if requested_page is None:
             return 0
 
@@ -132,71 +103,32 @@ class JSONLoad(Protocol):
 class BaseCursorPagination(BasePagination, ABC):
     __json_loads__: Callable
     __json_dumps__: Callable
-    #: The name of the query parameter to inspect for the cursor value.
     delimiter = "||"
 
     def __init__(
         self,
-        sort_enum: Type[SortableFieldEnum],
         id_fields: Set[str],
-        sorting: List[SortableFieldEnum],
         *args,
         validate_values: bool = True,
         **kwargs,
     ) -> None:
-        super().__init__()
-        self.sort_enum = sort_enum
-        self.sorting = sorting
         self.id_fields = id_fields
         self._validate_values = validate_values
 
-    # There are a number of different cases that this covers in order to be backwards compatible with
     @staticmethod
     def get_cursor_info(next_: str) -> CursorInfo:
         cursor = next_
         cursor_arg = None
-
         limit = None
         limit_arg = None
-
-        # Unambiguous cases where a cursor is provided.
-        # if self.after_arg:
-
-        # Ambiguous cases where limits are provided but not cursors
-        # Relay sometimes sends both first and after, default to "first"
-        # in keeping with the cursor precedence
-
-        # legacy "cursor_arg" config cases always map to after/first
         reversed_ = False
-
         return CursorInfo(reversed_, cursor, cursor_arg, limit, limit_arg)
 
     @property
     def reversed(self) -> bool:
         return False
 
-    def get_field_orderings(self) -> List[SortableFieldEnum]:
-        if self.sorting is None:
-            raise AssertionError("sorting must be defined when using cursor pagination")
-        if self.sorting:
-            op = "__pos__" if self.sorting[-1].direction == SortingDirection.ASCENDING else "__neg__"
-        else:
-            op = "__pos__"
-
-        missing_field_orderings = [
-            getattr(self.sort_enum(id_field), op)()
-            for id_field in self.id_fields
-            if id_field not in frozenset(self.sorting)
-        ]
-
-        field_ordering = self.sorting + missing_field_orderings
-        # if self.reversed:
-
-        return field_ordering  # noqa: RET504
-
-    def parse_cursor(
-        self, cursor: str, field_orderings: List[SortableFieldEnum]
-    ) -> Optional[Tuple[Tuple[str, Any], ...]]:
+    def parse_cursor(self, cursor: str, field_orderings: List) -> Optional[Tuple[Tuple[str, Any], ...]]:
         if cursor is None:
             return None
         parsed_cursor = self.decode_cursor(cursor)
@@ -206,7 +138,7 @@ class BaseCursorPagination(BasePagination, ABC):
 
         return tuple((field, value) for field, value in zip(field_orderings, parsed_cursor))
 
-    def render_cursor(self, item: TEntity, column_fields: Iterable[SortableFieldEnum]) -> str:
+    def render_cursor(self, item: TEntity, column_fields: Iterable) -> str:
         if PYDANTIC_V2:
             cursor = tuple(self.__json_dumps__(getattr(item, field.value)).decode() for field in column_fields)
         else:
@@ -232,23 +164,26 @@ class BaseCursorPagination(BasePagination, ABC):
         encoded += (3 - ((len(encoded) + 3) % 4)) * b"="  # Add back padding.
         return base64.b64decode(encoded).decode()
 
-    def get_filter(self, field_orderings: List[SortableFieldEnum], cursor: Cursor) -> Any:
+    def get_filter(self, field_orderings: List[Tuple[str, str]], cursor: Cursor) -> Any:
         raise NotImplementedError
 
-    def get_previous_clause(self, column_cursors: List[Tuple[Any, SortingDirection, Tuple[str, Any]]]) -> Any:
+    def get_previous_clause(self, column_cursors: List[Tuple[Any, Any, Tuple[str, Any]]]) -> Any:
         raise NotImplementedError
 
     @staticmethod
     def _handle_nullable(column: Any, value: Any, *, is_nullable: bool) -> Any:
         raise NotImplementedError
 
-    def _prepare_current_clause(self, column: Any, direction: SortingDirection, value: Any) -> Any:
+    def _prepare_current_clause(self, column: Any, direction: Sorting, value: Any) -> Any:
         raise NotImplementedError
 
-    def get_filter_clause(self, column_cursors: List[Tuple[Any, SortingDirection, Tuple[str, Any]]]) -> Any:
+    def get_filter_clause(self, column_cursors: List[Tuple[Any, Sorting, Tuple[str, Any]]]) -> Any:
         raise NotImplementedError
+
+    @abstractmethod
+    def get_field_orderings(self, query: Any) -> List: ...
 
 
 class BaseRelayPagination(BaseCursorPagination, ABC):
-    def make_cursors(self, items: List[TEntity], field_orderings: List[SortableFieldEnum]) -> Tuple[str, ...]:
+    def make_cursors(self, items: List[TEntity], field_orderings: List[Sorting]) -> Tuple[str, ...]:
         return tuple(self.render_cursor(item, field_orderings) for item in items)

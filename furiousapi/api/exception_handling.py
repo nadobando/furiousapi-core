@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 def furious_db_exception_handler(_: Request, exception: FuriousEntityError) -> JSONResponse:
     api_exception: FuriousAPIError = DB_TO_HTTP_ERROR[exception.__class__](str(exception))
-    logging.info("furiousapi error", exc_info=True)
+    logger.info("furiousapi error", exc_info=True)
     return JSONResponse(
         content=api_exception.detail, status_code=api_exception.status_code, headers=api_exception.headers
     )

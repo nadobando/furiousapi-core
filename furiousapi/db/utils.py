@@ -16,18 +16,37 @@ from typing import (
     Tuple,
     Type,
     Union,
-    cast,
 )
 
 import fastapi._compat
 from fastapi import Query
-from pydantic import BaseConfig, BaseModel, Extra, create_model
+from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 
 from furiousapi.db.consts import ANNOTATIONS
-from furiousapi.db.fields import SortableFieldEnum
 from furiousapi.pydantic import PYDANTIC_V2
 
+if sys.version_info >= (3, 11):
+    from typing import NamedTuple
+else:
+    from typing_extensions import NamedTuple
+if PYDANTIC_V2:
+    from pydantic import ConfigDict
+
+    if sys.version_info >= (3, 11):
+        from typing import TypeAlias
+
+        ConfigType: TypeAlias = ConfigDict
+    else:
+        ConfigType = ConfigDict
+else:
+    from pydantic import BaseConfig, Extra
+
+    if sys.version_info >= (3, 11):
+
+        ConfigType: TypeAlias = Type[BaseConfig]  # type: ignore[misc]
+    else:
+        ConfigType = Type[BaseConfig]  # type: ignore[misc]
 if TYPE_CHECKING:
     from furiousapi.pydantic import ModelField
 
@@ -56,9 +75,7 @@ def get_model_fields(
     else:
         model_fields = model.__fields__  # type: ignore[assignment]
     for key, value in model_fields.items():
-        # if recursive and isinstance(value.type_, GenericAlias) and value.type_.__origin__ is list:
-        #     pass
-        if recursive and issubclass(value.type_, BaseModel):
+        if recursive and isinstance(value.type_, type) and issubclass(value.type_, BaseModel):
             keys.update({key: alias_generator(key)})
             sub_fields = get_model_fields(value.type_, include, recursive=recursive)
             for child_key, child_value in sub_fields.items():
@@ -88,39 +105,18 @@ def get_model_fields_enum(
     return Enum(name, fields)  # type: ignore[return-value]
 
 
-def get_model_sort_fields_enum(
-    model: Type[BaseModel],
-    override_name: Optional[str] = None,
-    include: Optional[Set[str]] = None,
-    exclude: Optional[Set[str]] = None,
-) -> Type[SortableFieldEnum]:
-    name = override_name or f"{model.__name__}FieldSortEnum"
-    fields: Dict[str, str] = get_model_fields(model, include)
-
-    if exclude:
-        fields = {k: v for k, v in fields.items() if k not in exclude}
-
-    return SortableFieldEnum(name, cast(List[str], fields))  # type: ignore[call-overload]
-
-
-if sys.version_info >= (3, 11):
-    from typing import NamedTuple
-else:
-    from typing_extensions import NamedTuple
-
-
 class FieldAlias(NamedTuple):
     name: str
     field: "ModelField"
 
 
 @lru_cache
-def model_alias_mapping(model: Type[BaseModel]) -> Dict[str | None, FieldAlias]:
+def model_alias_mapping(model: Type[BaseModel]) -> Dict[Optional[str], FieldAlias]:
     aliases = {}
     if PYDANTIC_V2:
-        model_fields = model.model_fields
+        model_fields: dict = model.model_fields
     else:
-        model_fields = model.__fields__  # type: ignore[assignment]
+        model_fields: dict = model.__fields__  # type: ignore[assignment]
 
     for k, v in model_fields.items():
         aliases[v.alias] = FieldAlias(k, v)
@@ -128,70 +124,15 @@ def model_alias_mapping(model: Type[BaseModel]) -> Dict[str | None, FieldAlias]:
     return aliases
 
 
-Projection = Dict[str, Union[int, "Projection"]]
+Projection = Dict[str, Union[int, Dict[str, Any]]]
 
 
-def create_subset_model(model: Type[BaseModel], projection: Projection) -> Type[BaseModel]:
-    """
-    Create a new Pydantic model that is a subset of the given model, based on a given projection.
-
-    :param model: The base Pydantic model to create a subset from.
-    :type model: Type[BaseModel]
-    :param projection: A dictionary defining the subset of fields to include in the new model.
-    :type projection: RecursiveDict
-    :return: The new Pydantic model that is a subset of the original model.
-    :rtype: Type[BaseModel]
-
-    This function recursively traverses the given projection dictionary
-    to build up a new set of fields to include in the subset model.
-    The resulting model will have the same structure as the original model, but with only the fields
-    specified in the projection included.
-
-    Note that if a field in the projection is itself a Pydantic model, that model will also be included in the subset
-    (along with its own subset of fields, if specified in the projection).
-
-    Also note that any fields in the original model that are not included in the projection will not be included in the
-    subset model.
-    """
-    fields: Dict[str, Any] = {}
-    alias_mapping = model_alias_mapping(model)
-    projection_stack: List[Tuple[Any, Projection, Dict[str, Any]]] = [(model, projection, fields)]
-
-    while projection_stack:
-        curr_model, curr_projection, curr_fields = projection_stack.pop()
-        model_fields = (PYDANTIC_V2 and curr_model.model_fields) or curr_model.__fields__
-
-        for k, v in curr_projection.items():
-            if isinstance(v, dict):
-                if PYDANTIC_V2:
-                    subset_field = {
-                        x.name: x for x in fastapi._compat.get_model_fields(curr_model)  # noqa: SLF001
-                    }.get(k)
-                else:
-                    subset_field = curr_model.__fields__.get(k, None)
-
-                if subset_field is not None and issubclass(subset_field.type_, BaseModel):
-                    projection_stack.append((subset_field.type_, v, {}))
-
-                field_annotation = subset_field.type_ if subset_field is not None else v
-                field_info = None if subset_field is None else subset_field.field_info
-                curr_fields[k] = (field_annotation, field_info)
-            elif k in model_fields or k in alias_mapping:
-                field = model_fields.get(k, None)
-                if field is None:
-                    alias = alias_mapping.get(k)
-                    field = alias and alias.field
-                if field is not None:
-                    field_name = k if k in model_fields else alias_mapping[k].name
-                    if PYDANTIC_V2:
-                        field_info = field
-                    else:
-                        field_info = field.field_info
-                    curr_fields[field_name] = (field.annotation, field_info)
-
+def build_config() -> ConfigType:
+    if PYDANTIC_V2:
+        return ConfigDict(extra="ignore")
     config = BaseConfig
     config.extra = Extra.ignore  # type: ignore[attr-defined]
-    return create_model(f"Temp{model.__name__}", __config__=config, **fields)  # type: ignore[call-overload]
+    return config  # type: ignore[return-value]
 
 
 def clean_dict(d: dict) -> dict:
@@ -233,7 +174,6 @@ def _remove_extra_data_from_signature(cls: Type[BaseModel]) -> None:
 def init_query_param(
     model_field: "ModelField", name: str, alias: str, parameter: inspect.Parameter
 ) -> inspect.Parameter:
-
     annotation = model_field.annotation
     if PYDANTIC_V2:
         field_info = model_field

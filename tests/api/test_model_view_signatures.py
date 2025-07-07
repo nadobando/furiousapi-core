@@ -17,20 +17,11 @@ def test_create_signature(controller1: MyModel1Controller):
 
 def test_list_signature(controller1: MyModel1Controller):
     route: APIRoute = get_route(controller1, "list")
-    pagination = route.dependant.dependencies[1]
-    assert pagination.name == "pagination"
-    for param, dep in zip(["limit", "pagination_type", "next"], pagination.query_params):
-        assert param == dep.name
-
-    filtering = route.dependant.query_params[2]
-    assert filtering.name == "filtering"
-
-    fields = route.dependant.query_params[0]
-    assert fields.name == "fields"
-    assert get_most_inner_class(fields.type_) is controller1.repository.__fields__
-    sorting = route.dependant.query_params[1]
-    assert sorting.name == "sorting"
-    assert get_most_inner_class(sorting.type_) is controller1.repository.__sort__
+    query_params = route.dependant.query_params
+    assert query_params[0].name == "limit"
+    assert query_params[1].name == "next_"
+    assert query_params[2].name == "query"
+    assert query_params[3].name == "pagination_type"
     assert route.response_model == PaginatedResponse[MyModel1]
 
 
@@ -38,7 +29,7 @@ def test_get_signature(controller1: MyModel1Controller):
     get: APIRoute = get_route(controller1, "get")
     fields = get.dependant.query_params[0]
     assert get.response_model is MyModel1
-    assert get_most_inner_class(fields.type_) is controller1.repository.__fields__
+    assert get_most_inner_class(fields.type_) is controller1.get_fields
 
 
 def test_delete_signature(controller1: MyModel1Controller):
@@ -46,7 +37,7 @@ def test_delete_signature(controller1: MyModel1Controller):
     id_field = delete.dependant.path_params[0]
     assert id_field.alias == "id"
     assert id_field.required
-    assert delete.response_model is None
+    assert delete.response_model in (None, type(None))
 
 
 def test_update_signature(controller1: MyModel1Controller):

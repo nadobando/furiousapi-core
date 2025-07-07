@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-from typing import Annotated, Optional, Type
+from typing import Annotated, Optional
 
 from fastapi.params import Depends
 from pydantic import BaseModel, Field
 
 from furiousapi.api import ModelController
-from furiousapi.db import RepositoryConfig
 from furiousapi.db.models import FuriousPydanticConfig
-from furiousapi.pydantic import PYDANTIC_V2, ModelMetaclass
-from tests.api.utils import InMemoryDBRepository
+from furiousapi.pydantic import PYDANTIC_V2
+from tests.api.repository import InMemoryDBRepository
 
 
 class Model(BaseModel):
@@ -38,23 +37,11 @@ class MyModel2(Model):
 
 
 class MyModel1Repository(InMemoryDBRepository[MyModel1]):  # type: ignore[type-arg]
-    class Config(RepositoryConfig):
-        @staticmethod
-        def model_to_query(x: Type[MyModel1]) -> Type[MyModel1]:
-            return x
-
-        # TODO: fix this for pydantic v2
-        filter_model = ModelMetaclass  # type: ignore[assignment]
+    ...
 
 
 class MyModel2Repository(InMemoryDBRepository[MyModel2]):  # type: ignore[type-arg]
-    class Config(RepositoryConfig):
-        @staticmethod
-        def model_to_query(x: Type[MyModel1]) -> Type[MyModel1]:
-            return x
-
-        # TODO: fix this for pydantic v2
-        filter_model = ModelMetaclass  # type: ignore[assignment]
+    ...
 
 
 def repository1_dependency() -> MyModel1Repository:
