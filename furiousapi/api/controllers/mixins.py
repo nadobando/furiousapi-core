@@ -23,6 +23,7 @@ from pydantic import BaseModel, conlist
 
 from furiousapi.api import error_responses
 from furiousapi.api.controllers.utils import _prepare_endpoint, add_model_method_name
+from furiousapi.api.exceptions import BadRequestError
 from furiousapi.api.pagination import PaginatedResponse, PaginationStrategyEnum
 from furiousapi.api.responses import BulkResponseModel, PartialModelResponse
 from furiousapi.core import config
@@ -239,10 +240,11 @@ class ListModelMixin(BaseModelRouteMixin):
         ),
     ) -> PaginatedResponse:
         if query:
-            if self.__filtering__:
-                q = self.__filtering__.parse(query, pagination_type)
-            else:
-                q = query
+            if not self.__filtering__:
+                raise BadRequestError(
+                    "RQL filtering is not configured for this endpoint; the `q` query parameter is not supported.",
+                )
+            q = self.__filtering__.parse(query, pagination_type)
         else:
             q = self.repository.query()
         paginator = self.repository.get_paginator(pagination_type)
