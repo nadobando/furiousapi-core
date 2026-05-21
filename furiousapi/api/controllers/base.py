@@ -129,7 +129,7 @@ def _generate_init_fn_with_injected_dependencies(cls: type) -> None:
 
         old_init(self, *args, **kwargs)
 
-    cls.__signature__ = new_signature  # type: ignore[misc,attr-defined]
+    cls.__signature__ = new_signature
     cls.__init__ = new_init  # type: ignore[misc]
 
 
@@ -564,9 +564,7 @@ class CBV(abc.ABC, metaclass=CBVMeta):
 REPOSITORY = "repository"
 
 
-class ModelController(
-    CBV, GetModelMixin, ListModelMixin, CreateModelMixin, UpdateModelMixin, DeleteModelMixin
-):  # type: ignore[misc]
+class ModelController(CBV, GetModelMixin, ListModelMixin, CreateModelMixin, UpdateModelMixin, DeleteModelMixin):
     repository: Annotated[BaseRepository, Depends]
     __model_name__: str
     __use_model_name__: bool = False

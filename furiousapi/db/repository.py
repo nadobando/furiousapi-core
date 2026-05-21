@@ -67,7 +67,7 @@ class RepositoryMeta(ABCMeta):
 
 # todo: mypy issue
 #  Free type variable expected in Generic[...]  [misc]
-class BaseRepository(Generic[TEntity], metaclass=RepositoryMeta):  # type: ignore[misc]
+class BaseRepository(Generic[TEntity], metaclass=RepositoryMeta):
 
     if TYPE_CHECKING:
         __model__: Type[TEntity]

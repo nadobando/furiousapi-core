@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from pydantic.typing import AbstractSetIntStr, DictStrAny, MappingIntStrAny
 
 
-class PaginatedResponse(GenericModel, Generic[TEntity]):  # type: ignore[misc]
+class PaginatedResponse(GenericModel, Generic[TEntity]):
     total: Optional[int]
     items: List[TEntity]
     index: Optional[int]
@@ -57,7 +57,7 @@ class PaginatedResponse(GenericModel, Generic[TEntity]):  # type: ignore[misc]
 
     else:
 
-        def dict(  # type: ignore[override]
+        def dict(
             self,
             *,
             include: Optional[Union[AbstractSetIntStr, MappingIntStrAny]] = None,

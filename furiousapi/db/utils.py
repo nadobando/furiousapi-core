@@ -116,7 +116,7 @@ def model_alias_mapping(model: Type[BaseModel]) -> Dict[Optional[str], FieldAlia
     if PYDANTIC_V2:
         model_fields: dict = model.model_fields
     else:
-        model_fields: dict = model.__fields__  # type: ignore[assignment]
+        model_fields: dict = model.__fields__
 
     for k, v in model_fields.items():
         aliases[v.alias] = FieldAlias(k, v)

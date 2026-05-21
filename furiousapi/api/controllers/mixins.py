@@ -49,8 +49,7 @@ class BaseRouteMixin(ABC):
     # noinspection PyMethodParameters
     @classmethod
     @abstractmethod
-    def __bootstrap__(cls, *args, **kwargs) -> None:  # type: ignore[misc]
-        ...
+    def __bootstrap__(cls, *args, **kwargs) -> None: ...
 
 
 class RouteMixin(BaseRouteMixin, ABC):
@@ -60,7 +59,7 @@ class RouteMixin(BaseRouteMixin, ABC):
         api_router_method = getattr(cls.api_router, endpoint.__name__)
         endpoint = getattr(cls, endpoint.__name__)
         endpoint = _prepare_endpoint(cls, endpoint)
-        api_router_method("/", **route_params)(endpoint)  # type: ignore[arg-type]
+        api_router_method("/", **route_params)(endpoint)
 
 
 class GetRouteMixin(RouteMixin):
@@ -185,7 +184,7 @@ class GetModelMixin(BaseModelRouteMixin):
         params.update(route_params)
         add_model_method_name(cast("Type[ModelController]", cls), params)
 
-        cls.api_router.get("/{id}", **params)(cls.get)  # type: ignore[arg-type]
+        cls.api_router.get("/{id}", **params)(cls.get)
 
     async def get(
         self,
@@ -224,7 +223,7 @@ class ListModelMixin(BaseModelRouteMixin):
         params.update(route_params)
 
         add_model_method_name(cast("Type[ModelController]", cls), params, plural=True)
-        cls.api_router.get("/", **params)(cls.list)  # type: ignore[arg-type]
+        cls.api_router.get("/", **params)(cls.list)
 
     async def list(
         self,
@@ -241,7 +240,7 @@ class ListModelMixin(BaseModelRouteMixin):
     ) -> PaginatedResponse:
         if query:
             if self.__filtering__:
-                q = self.__filtering__.parse(query, pagination_type)  # type: ignore[attr-defined]
+                q = self.__filtering__.parse(query, pagination_type)
             else:
                 q = query
         else:
@@ -277,7 +276,7 @@ class CreateModelMixin(BaseModelRouteMixin):
         route_params = cls._get_route_params("create")
         params.update(route_params)
 
-        cls.api_router.post("/", **params)(cls.create)  # type: ignore[arg-type]
+        cls.api_router.post("/", **params)(cls.create)
 
     async def create(self, model: Union[BaseModel, TEntity]) -> TEntity:
         return await self.repository.add(model)
@@ -307,7 +306,7 @@ class UpdateModelMixin(BaseModelRouteMixin):
         params = {"responses": responses, "response_model": cls.__repository_cls__.__model__}
         route_params = cls._get_route_params("update")
         params.update(route_params)
-        cls.api_router.put("/{id}", **params)(cls.update)  # type: ignore[arg-type]
+        cls.api_router.put("/{id}", **params)(cls.update)
 
     async def update(self, model: Union[BaseModel, TEntity], id_: Any = Path(alias="id")) -> Any:
         return await self.repository.update(id_, model)
@@ -324,7 +323,7 @@ class DeleteModelMixin(BaseModelRouteMixin):
         route_params = cls._get_route_params("delete")
         params.update(route_params)
 
-        cls.api_router.delete("/{id}", **params)(cls.delete)  # type: ignore[arg-type]
+        cls.api_router.delete("/{id}", **params)(cls.delete)
 
     async def delete(self, id_: Union[str, int] = Path(..., alias="id")) -> None:
         return await self.repository.delete(id_)
@@ -358,7 +357,7 @@ class BulkCreateModelMixin(BulkBase):
             or parameters["bulk"].annotation is inspect.Parameter.empty
         ):
             parameters["bulk"] = parameters["bulk"].replace(
-                annotation=List[cls.create_model or cls.__repository_cls__.__model__],  # type: ignore[misc,index]
+                annotation=List[cls.create_model or cls.__repository_cls__.__model__],
             )
 
         cls.bulk_create.__signature__ = signature.replace(  # type: ignore[attr-defined]
@@ -391,7 +390,7 @@ class BulkUpdateModelMixin(BulkBase):
             or parameters["bulk"].annotation is inspect.Parameter.empty
         ):
             parameters["bulk"] = parameters["bulk"].replace(
-                annotation=List[cls.update_model or cls.__repository_cls__.__model__],  # type: ignore[index,misc]
+                annotation=List[cls.update_model or cls.__repository_cls__.__model__],
             )
 
         cls.bulk_update.__signature__ = signature.replace(  # type: ignore[attr-defined]
