@@ -8,7 +8,7 @@ version = "0.1.0-dev.1"
 description = "FastAPI & FuriousAPI"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.9.5,<=3.13"
+requires-python = ">=3.9.5,<3.14"
 authors = [
     { name = "nadobando", email = "7695172+nadobando@users.noreply.github.com" }
 ]
