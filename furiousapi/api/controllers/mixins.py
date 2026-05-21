@@ -281,6 +281,17 @@ class CreateModelMixin(BaseModelRouteMixin):
         cls.api_router.post("/", **params)(cls.create)
 
     async def create(self, model: Union[BaseModel, TEntity]) -> TEntity:
+        # If `create_model` was configured (e.g., a request-only schema like
+        # `ItemCreate`), the parsed payload is that type, not the repository's
+        # entity. Convert to the entity class before handing it off, since
+        # repositories often type-check the argument against the entity class.
+        target = self.repository.__model__
+        if not isinstance(model, target):
+            if PYDANTIC_V2:
+                data = model.model_dump()
+            else:
+                data = model.dict()
+            model = target(**data)
         return await self.repository.add(model)
 
 
