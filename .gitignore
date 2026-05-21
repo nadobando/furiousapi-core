@@ -142,3 +142,9 @@ cython_debug/
 
 
 .ruff_cache
+
+# OS
+.DS_Store
+
+# uv lock file — libraries resolve fresh against consumers' constraints
+uv.lock
