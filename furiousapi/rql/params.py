@@ -94,8 +94,6 @@ if PYDANTIC_V2:
                 **extra,
             )
 
-    class AQuery(Query): ...
-
 else:
 
     class RQLStr(str):
