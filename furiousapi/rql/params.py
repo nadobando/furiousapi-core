@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List, Optional, Type, Union
+from typing import Any, Callable, Dict, Generic, List, Optional, Type, TypeVar, Union
 
 from fastapi._compat import PYDANTIC_V2, Undefined
 from fastapi.openapi.models import Example
@@ -6,8 +6,12 @@ from fastapi.params import Query, _Unset
 from pydantic import BaseModel
 from typing_extensions import Annotated, deprecated
 
+RQLStrModel = TypeVar("RQLStrModel")
 if PYDANTIC_V2:
     from pydantic import AliasChoices, AliasPath
+
+    class RQLStr(str, Generic[RQLStrModel]):
+        __slots__ = ()
 
     class RQLQueryStr(Query):
         def __init__(
@@ -93,6 +97,9 @@ if PYDANTIC_V2:
     class AQuery(Query): ...
 
 else:
+
+    class RQLStr(str):
+        __slots__ = ()
 
     class RQLQueryStr(Query):
         def __init__(
