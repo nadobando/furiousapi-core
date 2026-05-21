@@ -62,7 +62,8 @@ from furiousapi.api.controllers.mixins import (
     DeleteModelMixin,
     GetModelMixin,
     ListModelMixin,
-    UpdateModelMixin,
+    PatchModelMixin,
+    ReplaceModelMixin,
 )
 
 logger = logging.getLogger(__name__)
@@ -564,7 +565,15 @@ class CBV(abc.ABC, metaclass=CBVMeta):
 REPOSITORY = "repository"
 
 
-class ModelController(CBV, GetModelMixin, ListModelMixin, CreateModelMixin, UpdateModelMixin, DeleteModelMixin):
+class ModelController(
+    CBV,
+    GetModelMixin,
+    ListModelMixin,
+    CreateModelMixin,
+    ReplaceModelMixin,
+    PatchModelMixin,
+    DeleteModelMixin,
+):
     repository: Annotated[BaseRepository, Depends]
     __model_name__: str
     __use_model_name__: bool = False

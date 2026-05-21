@@ -295,34 +295,86 @@ class CreateModelMixin(BaseModelRouteMixin):
         return await self.repository.add(model)
 
 
-class UpdateModelMixin(BaseModelRouteMixin):
-    update_model: ClassVar[Optional[Type[BaseModel]]] = None
+class ReplaceModelMixin(BaseModelRouteMixin):
+    """PUT /{id} — full replacement of the entity (HTTP-RFC semantics)."""
+
+    replace_model: ClassVar[Optional[Type[BaseModel]]] = None
 
     @classmethod
     def __bootstrap__(cls, *args, **kwargs) -> None:
         super().__bootstrap__(*args, **kwargs)
-        _prepare_endpoint(cls, cls.update)
+        _prepare_endpoint(cls, cls.replace)
 
-        signature = inspect.signature(cls.update)
+        signature = inspect.signature(cls.replace)
         responses = {400: {"model": error_responses.BadRequestHttpErrorResponse, "content": {"application/json": {}}}}
         parameters = signature.parameters.copy()
         if (
-            # not is_overriden or
             parameters["model"].annotation == "Union[BaseModel, TEntity]"
             or parameters["model"].annotation is inspect.Parameter.empty
         ):
             parameters["model"] = parameters["model"].replace(
-                annotation=cls.update_model or cls.__repository_cls__.__model__,
+                annotation=cls.replace_model or cls.__repository_cls__.__model__,
             )
 
-        cls.update.__signature__ = signature.replace(parameters=list(parameters.values()))  # type: ignore[attr-defined]
+        cls.replace.__signature__ = signature.replace(parameters=list(parameters.values()))  # type: ignore[attr-defined]
         params = {"responses": responses, "response_model": cls.__repository_cls__.__model__}
-        route_params = cls._get_route_params("update")
+        route_params = cls._get_route_params("replace")
         params.update(route_params)
-        cls.api_router.put("/{id}", **params)(cls.update)
+        cls.api_router.put("/{id}", **params)(cls.replace)
 
-    async def update(self, model: Union[BaseModel, TEntity], id_: Any = Path(alias="id")) -> Any:
-        return await self.repository.update(id_, model)
+    async def replace(self, model: Union[BaseModel, TEntity], id_: Any = Path(alias="id")) -> Any:
+        return await self.repository.replace(id_, model)
+
+
+class PatchModelMixin(BaseModelRouteMixin):
+    """PATCH /{id} — partial update; omitted fields preserved."""
+
+    patch_model: ClassVar[Optional[Type[BaseModel]]] = None
+
+    @classmethod
+    def __bootstrap__(cls, *args, **kwargs) -> None:
+        super().__bootstrap__(*args, **kwargs)
+        _prepare_endpoint(cls, cls.patch)
+
+        signature = inspect.signature(cls.patch)
+        responses = {400: {"model": error_responses.BadRequestHttpErrorResponse, "content": {"application/json": {}}}}
+        parameters = signature.parameters.copy()
+        if (
+            parameters["model"].annotation == "Union[BaseModel, TEntity]"
+            or parameters["model"].annotation is inspect.Parameter.empty
+        ):
+            parameters["model"] = parameters["model"].replace(
+                annotation=cls.patch_model or cls.__repository_cls__.__model__,
+            )
+
+        cls.patch.__signature__ = signature.replace(parameters=list(parameters.values()))  # type: ignore[attr-defined]
+        params = {"responses": responses, "response_model": cls.__repository_cls__.__model__}
+        route_params = cls._get_route_params("patch")
+        params.update(route_params)
+        cls.api_router.patch("/{id}", **params)(cls.patch)
+
+    async def patch(self, model: Union[BaseModel, TEntity], id_: Any = Path(alias="id")) -> Any:
+        return await self.repository.patch(id_, model)
+
+
+# Deprecated alias — see ReplaceModelMixin and PatchModelMixin.
+# Kept importable so old user code raises a DeprecationWarning at __init_subclass__
+# rather than a silent ImportError.
+class UpdateModelMixin(ReplaceModelMixin):
+    """Deprecated — use ReplaceModelMixin (PUT, full replace) or PatchModelMixin
+    (PATCH, partial update) instead. This shim resolves to ReplaceModelMixin
+    behavior and will be removed in a future release."""
+
+    def __init_subclass__(cls, **kwargs) -> None:
+        import warnings
+
+        warnings.warn(
+            "UpdateModelMixin is deprecated. Use ReplaceModelMixin for full replacement "
+            "(PUT) or PatchModelMixin for partial update (PATCH).",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        super().__init_subclass__(**kwargs)
 
 
 class DeleteModelMixin(BaseModelRouteMixin):

@@ -40,9 +40,14 @@ def test_delete_signature(controller1: MyModel1Controller):
     assert delete.response_model in (None, type(None))
 
 
-def test_update_signature(controller1: MyModel1Controller):
-    update: APIRoute = get_route(controller1, "update")
-    assert update.response_model is MyModel1
+def test_replace_signature(controller1: MyModel1Controller):
+    replace: APIRoute = get_route(controller1, "replace")
+    assert replace.response_model is MyModel1
+
+
+def test_patch_signature(controller1: MyModel1Controller):
+    patch: APIRoute = get_route(controller1, "patch")
+    assert patch.response_model is MyModel1
 
 
 def get_route(controller: ModelController, route: str) -> "APIRoute":

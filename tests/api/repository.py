@@ -54,10 +54,19 @@ class InMemoryDBRepository(BaseRepository[TEntity]):
         self._store[entity.id] = entity  # type: ignore[attr-defined]
         return entity
 
-    async def update(self, id_: str, entity: TEntity, **kwargs) -> Optional[TEntity]:
-        if id_ not in self._store:  # type: ignore[attr-defined]
-            raise KeyError(f"Key {id_} does not exist")  # type: ignore[attr-defined]
-        self._store[entity.id] = entity  # type: ignore[attr-defined]
+    async def patch(self, id_: str, partial: TEntity, **kwargs) -> Optional[TEntity]:
+        if id_ not in self._store:
+            raise KeyError(f"Key {id_} does not exist")
+        existing = self._store[id_]
+        data = partial.model_dump(exclude_unset=True, exclude={"id"})
+        for k, v in data.items():
+            setattr(existing, k, v)
+        return existing
+
+    async def replace(self, id_: str, entity: TEntity, **kwargs) -> Optional[TEntity]:
+        if id_ not in self._store:
+            raise KeyError(f"Key {id_} does not exist")
+        self._store[entity.id] = entity
         return entity
 
     async def delete(self, entity: Union[TEntity, str, int], **kwargs) -> None:

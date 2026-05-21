@@ -95,7 +95,36 @@ class BaseRepository(Generic[TEntity], metaclass=RepositoryMeta):
     async def add(self, entity: TEntity) -> TEntity: ...
 
     @abstractmethod
-    async def update(self, id_: Any, entity: TEntity, **kwargs) -> Optional[TEntity]: ...
+    async def patch(self, id_: Any, partial: TEntity, **kwargs) -> Optional[TEntity]:
+        """Partial update: only fields explicitly set in `partial` are written.
+
+        Mirrors HTTP PATCH semantics — omitted fields are preserved.
+        """
+        ...
+
+    @abstractmethod
+    async def replace(self, id_: Any, entity: TEntity, **kwargs) -> Optional[TEntity]:
+        """Full replacement: all fields are written, including defaults for unset ones.
+
+        Mirrors HTTP PUT semantics — the request is the new state of the resource.
+        """
+        ...
+
+    async def update(self, id_: Any, entity: TEntity, **kwargs) -> Optional[TEntity]:
+        """Deprecated. Alias of `patch()` — historical PATCH-semantics method.
+
+        Use `patch(id_, partial)` for partial updates or `replace(id_, entity)`
+        for full replacement. This shim will be removed in a future release.
+        """
+        import warnings
+
+        warnings.warn(
+            "BaseRepository.update() is deprecated; use patch() for partial updates "
+            "or replace() for full replacement.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return await self.patch(id_, entity, **kwargs)
 
     @abstractmethod
     async def delete(self, entity: Union[TEntity, str, int], **kwargs) -> None: ...
