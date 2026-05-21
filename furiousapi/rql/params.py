@@ -13,7 +13,7 @@ if PYDANTIC_V2:
     class RQLStr(str, Generic[RQLStrModel]):
         __slots__ = ()
 
-    class RQLQueryStr(Query):
+    class RQLQueryStr(Query):  # type: ignore[misc]
         def __init__(
             self,
             model: Optional[Type[BaseModel]] = None,
@@ -67,7 +67,7 @@ if PYDANTIC_V2:
                 annotation=annotation,
                 alias=alias,
                 alias_priority=alias_priority,
-                validation_alias=validation_alias,
+                validation_alias=validation_alias,  # type: ignore[arg-type]
                 serialization_alias=serialization_alias,
                 title=title,
                 description=description,
@@ -99,7 +99,7 @@ else:
     class RQLStr(str):
         __slots__ = ()
 
-    class RQLQueryStr(Query):
+    class RQLQueryStr(Query):  # type: ignore[misc]
         def __init__(
             self,
             model: Optional[Type[BaseModel]] = None,

@@ -148,11 +148,8 @@ class BaseRQLModelTransform(Transformer_InPlace):
     def sign_prop(self, expression: List[Union[Token, str]]) -> Tuple[str, Callable]:
         direction, field = expression
         self.validate_sort_field(field)
-        if direction in {None, "+"}:
-            direction = operator.pos
-        else:
-            direction = operator.neg
-        return field, direction
+        sign: Callable = operator.pos if direction in {None, "+"} else operator.neg
+        return field, sign
 
     def comp(self, c: List) -> List:
         op, field, _ = c

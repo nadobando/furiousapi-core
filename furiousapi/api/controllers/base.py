@@ -130,7 +130,7 @@ def _generate_init_fn_with_injected_dependencies(cls: type) -> None:
 
         old_init(self, *args, **kwargs)
 
-    cls.__signature__ = new_signature
+    cls.__signature__ = new_signature  # type: ignore[attr-defined]
     cls.__init__ = new_init  # type: ignore[misc]
 
 

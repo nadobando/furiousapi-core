@@ -180,7 +180,10 @@ class GetModelMixin(BaseModelRouteMixin):
 
         cls.get.__signature__ = signature.replace(**signature_params)  # type: ignore[attr-defined]
         responses = {404: {"model": error_responses.NotFoundHttpErrorDetails, "content": {"application/json": {}}}}
-        params = {"responses": responses, "response_model": cls.get_model or cls.__repository_cls__.__model__}
+        params: Dict[str, Any] = {
+            "responses": responses,
+            "response_model": cls.get_model or cls.__repository_cls__.__model__,
+        }
         route_params = cls._get_route_params("get")
         params.update(route_params)
         add_model_method_name(cast("Type[ModelController]", cls), params)
@@ -218,7 +221,10 @@ class ListModelMixin(BaseModelRouteMixin):
         #     parameters["query"] = parameters["query"].replace(annotation=cls.__filtering__, default=Query(None, alias="q"))  # noqa: ERA001, E501
 
         cls.list.__signature__ = signature.replace(parameters=list(parameters.values()))  # type: ignore[attr-defined]
-        params = {"response_model": PaginatedResponse[cls.__repository_cls__.__model__]}  # type: ignore[name-defined]
+        list_model_type: Any = cls.__repository_cls__.__model__
+        params: Dict[str, Any] = {
+            "response_model": PaginatedResponse[list_model_type],
+        }
 
         route_params = cls._get_route_params("list")
         params.update(route_params)
@@ -274,7 +280,7 @@ class CreateModelMixin(BaseModelRouteMixin):
             )
 
         cls.create.__signature__ = signature.replace(parameters=list(parameters.values()))  # type: ignore[attr-defined]
-        params = {"responses": responses, "response_model": cls.__repository_cls__.__model__}
+        params: Dict[str, Any] = {"responses": responses, "response_model": cls.__repository_cls__.__model__}
         route_params = cls._get_route_params("create")
         params.update(route_params)
 
@@ -317,7 +323,7 @@ class ReplaceModelMixin(BaseModelRouteMixin):
             )
 
         cls.replace.__signature__ = signature.replace(parameters=list(parameters.values()))  # type: ignore[attr-defined]
-        params = {"responses": responses, "response_model": cls.__repository_cls__.__model__}
+        params: Dict[str, Any] = {"responses": responses, "response_model": cls.__repository_cls__.__model__}
         route_params = cls._get_route_params("replace")
         params.update(route_params)
         cls.api_router.put("/{id}", **params)(cls.replace)
@@ -348,7 +354,7 @@ class PatchModelMixin(BaseModelRouteMixin):
             )
 
         cls.patch.__signature__ = signature.replace(parameters=list(parameters.values()))  # type: ignore[attr-defined]
-        params = {"responses": responses, "response_model": cls.__repository_cls__.__model__}
+        params: Dict[str, Any] = {"responses": responses, "response_model": cls.__repository_cls__.__model__}
         route_params = cls._get_route_params("patch")
         params.update(route_params)
         cls.api_router.patch("/{id}", **params)(cls.patch)
@@ -384,7 +390,7 @@ class DeleteModelMixin(BaseModelRouteMixin):
         _prepare_endpoint(cls, cls.delete)
 
         responses = {404: {"model": error_responses.NotFoundHttpErrorDetails, "content": {"application/json": {}}}}
-        params = {"responses": responses}
+        params: Dict[str, Any] = {"responses": responses}
         route_params = cls._get_route_params("delete")
         params.update(route_params)
 
@@ -421,14 +427,16 @@ class BulkCreateModelMixin(BulkBase):
             parameters["bulk"].annotation == "List[Union[BaseModel, TEntity]]"
             or parameters["bulk"].annotation is inspect.Parameter.empty
         ):
+            bulk_create_type: Any = cls.create_model or cls.__repository_cls__.__model__
             parameters["bulk"] = parameters["bulk"].replace(
-                annotation=List[cls.create_model or cls.__repository_cls__.__model__],
+                annotation=List[bulk_create_type],
             )
 
         cls.bulk_create.__signature__ = signature.replace(  # type: ignore[attr-defined]
             parameters=list(parameters.values())
         )
-        params = {"responses": responses, "response_model": List[cls.bulk_response_model]}  # type: ignore[name-defined]
+        bulk_response_type: Any = cls.bulk_response_model
+        params: Dict[str, Any] = {"responses": responses, "response_model": List[bulk_response_type]}
         route_params = cls._get_route_params("bulk_create")
         params.update(route_params)
 
@@ -454,16 +462,18 @@ class BulkUpdateModelMixin(BulkBase):
             parameters["bulk"].annotation == "List[Union[BaseModel, TEntity]]"
             or parameters["bulk"].annotation is inspect.Parameter.empty
         ):
+            bulk_update_type: Any = cls.update_model or cls.__repository_cls__.__model__
             parameters["bulk"] = parameters["bulk"].replace(
-                annotation=List[cls.update_model or cls.__repository_cls__.__model__],
+                annotation=List[bulk_update_type],
             )
 
         cls.bulk_update.__signature__ = signature.replace(  # type: ignore[attr-defined]
             parameters=list(parameters.values()),
         )
-        params = {
+        bulk_update_response_type: Any = cls.__repository_cls__.__model__
+        params: Dict[str, Any] = {
             "responses": responses,
-            "response_model": List[cls.__repository_cls__.__model__],  # type: ignore[name-defined]
+            "response_model": List[bulk_update_response_type],
         }
         route_params = cls._get_route_params("bulk_update")
         params.update(route_params)

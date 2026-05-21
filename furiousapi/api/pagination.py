@@ -36,10 +36,12 @@ class PaginatedResponse(GenericModel, Generic[TEntity]):
             exclude_unset: bool = False,
             exclude_defaults: bool = False,
             exclude_none: bool = False,
+            exclude_computed_fields: bool = False,
             round_trip: bool = False,
             warnings: Union[Literal["none", "warn", "error"], bool] = False,
             fallback: Optional[Callable[[Any], Any]] = None,  # noqa: ARG002
             serialize_as_any: bool = False,
+            polymorphic_serialization: Optional[bool] = None,
         ) -> dict[str, Any]:
             return super().model_dump(
                 mode=mode,
@@ -50,9 +52,11 @@ class PaginatedResponse(GenericModel, Generic[TEntity]):
                 exclude_unset=exclude_unset,
                 exclude_defaults=exclude_defaults,
                 exclude_none=exclude_none,
+                exclude_computed_fields=exclude_computed_fields,
                 round_trip=round_trip,
                 warnings=warnings,
                 serialize_as_any=serialize_as_any,
+                polymorphic_serialization=polymorphic_serialization,
             )
 
     else:

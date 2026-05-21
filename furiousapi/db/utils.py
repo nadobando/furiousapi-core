@@ -16,6 +16,7 @@ from typing import (
     Tuple,
     Type,
     Union,
+    cast,
 )
 
 import fastapi._compat
@@ -48,7 +49,7 @@ else:
     else:
         ConfigType = Type[BaseConfig]  # type: ignore[misc]
 if TYPE_CHECKING:
-    from furiousapi.pydantic import ModelField
+    from furiousapi.pydantic import FieldType, ModelField
 
 logger = logging.getLogger(__name__)
 
@@ -172,18 +173,27 @@ def _remove_extra_data_from_signature(cls: Type[BaseModel]) -> None:
 
 
 def init_query_param(
-    model_field: "ModelField", name: str, alias: str, parameter: inspect.Parameter
+    model_field: "FieldType", name: str, alias: str, parameter: inspect.Parameter
 ) -> inspect.Parameter:
-    annotation = model_field.annotation
+    # In v2, callers pass a pydantic FieldInfo (carries .annotation, .json_schema_extra).
+    # In v1, callers pass a pydantic ModelField (carries .field_info, .type_).
+    extra: Dict[str, Any]
     if PYDANTIC_V2:
+        if not isinstance(model_field, FieldInfo):
+            raise TypeError(f"Expected FieldInfo in pydantic v2 mode, got {type(model_field).__name__}")
         field_info = model_field
-        if isinstance(model_field.json_schema_extra, dict):
-            extra = model_field.json_schema_extra
-        else:
-            extra = {}
+        annotation = field_info.annotation
+        extra = dict(field_info.json_schema_extra) if isinstance(field_info.json_schema_extra, dict) else {}
     else:
-        extra = model_field.field_info.extra
-        field_info = model_field.field_info
+        from furiousapi.pydantic import ModelField as _ModelFieldV1
+
+        if not isinstance(model_field, _ModelFieldV1):
+            raise TypeError(f"Expected ModelField in pydantic v1 mode, got {type(model_field).__name__}")
+        # In pydantic v1, ModelField.field_info is a v1 FieldInfo with ``.extra``,
+        # not the v2 FieldInfo that mypy resolves above. Treat it as ``Any`` here.
+        field_info = cast("Any", model_field.field_info)
+        annotation = model_field.type_
+        extra = field_info.extra
 
     return inspect.Parameter(
         name=name,

@@ -63,7 +63,7 @@ class ModelRQL(Generic[TEntity]):
     def error_handling(cls, error: LarkError) -> NoReturn:
         if isinstance(error, UnexpectedToken):
             exc = error.match_examples(cls.__parser__.parse, cls.RQL_ERRORS)
-            if exc:
+            if exc and not isinstance(exc, str):
                 raise exc(str(error.pos_in_stream))
             raise error
 

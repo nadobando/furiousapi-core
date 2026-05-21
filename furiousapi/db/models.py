@@ -9,7 +9,7 @@ else:
     from pydantic import BaseConfig, BaseModel, Extra
 
 try:
-    from orjson import orjson
+    from orjson import orjson  # type: ignore[import-not-found]
 
     def orjson_dumps(v: Any, *, default: Any = None) -> str:
         return orjson.dumps(v, default=default).decode()
