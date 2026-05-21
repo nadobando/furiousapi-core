@@ -26,7 +26,7 @@ if PYDANTIC_V2:
 else:
     from pydantic.datetime_parse import parse_date, parse_datetime, parse_time
 
-SelectedField = Dict[str, Dict[str, "SelectedField"]]
+SelectedField = Dict[str, Union[None, Dict[str, "SelectedField"]]]
 
 
 class BaseRQLModelTransform(Transformer_InPlace):
@@ -186,8 +186,8 @@ class BaseRQLModelTransform(Transformer_InPlace):
     def or_(expression: List[List]) -> List[Union[Any, List[Any]]]:
         return ["__or__", expression]
 
-    def selection(self, expression: List[Union[Dict, str]]) -> Dict:
-        result: Dict[str, Optional[Dict]] = {}
+    def selection(self, expression: List[Union[Dict, str]]) -> SelectedField:
+        result = {}
         for selection in expression:
             if isinstance(selection, dict):
                 result.update(selection)
