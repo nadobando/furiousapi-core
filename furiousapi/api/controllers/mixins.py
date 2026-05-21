@@ -29,7 +29,7 @@ from furiousapi.core import config
 from furiousapi.db import utils
 from furiousapi.db.repository import BaseRepository  # noqa: TC001
 from furiousapi.pydantic import PYDANTIC_V2
-from furiousapi.rql.params import AQuery, RQLQueryStr
+from furiousapi.rql.params import RQLQueryStr
 
 if TYPE_CHECKING:
     from furiousapi.api.controllers.base import (  # noqa: F401,RUF100
@@ -216,6 +216,7 @@ class ListModelMixin(BaseModelRouteMixin):
         parameters = signature.parameters.copy()
         if cls.__filtering__:
             parameters["query"] = parameters["query"].replace(default=RQLQueryStr(cls.__filtering__, None, alias="q"))
+
         cls.list.__signature__ = signature.replace(parameters=list(parameters.values()))  # type: ignore[attr-defined]
         params = {"response_model": PaginatedResponse[cls.__repository_cls__.__model__]}  # type: ignore[name-defined]
 
@@ -232,7 +233,7 @@ class ListModelMixin(BaseModelRouteMixin):
             le=config.pagination.max_size,
             description="limit the result set",
         ),
-        next_: Union[int, str, None] = AQuery(None, alias="next"),
+        next_: Union[int, str, None] = Query(None, alias="next"),
         query: str = Query(None, alias="q"),
         pagination_type: Literal[PaginationStrategyEnum.CURSOR, PaginationStrategyEnum.OFFSET] = Query(
             PaginationStrategyEnum.CURSOR, include_in_schema=__include_in_schema_pagination_param__
