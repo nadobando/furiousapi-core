@@ -48,7 +48,6 @@ else:
 if TYPE_CHECKING:
     from enum import Enum
 
-    from fastapi.routing import APIRoute
     from fastapi.types import IncEx
     from starlette.routing import BaseRoute
 
@@ -546,7 +545,11 @@ class CBVMeta(abc.ABCMeta):
             cls.__bootstrap__()
 
         if cls.__enabled_routes__:
-            cls.api_router.routes = [route for route in cls.api_router.routes if route.name in cls.__enabled_routes__]
+            cls.api_router.routes = [
+                route
+                for route in cls.api_router.routes
+                if isinstance(route, APIRoute) and route.name in cls.__enabled_routes__
+            ]
 
         return cls
 
