@@ -1,10 +1,69 @@
 [build-system]
-build-backend = "poetry.core.masonry.api"
-requires = ["poetry-core"]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "furiousapi-core"
+version = "0.1.0-dev.1"
+description = "FastAPI & FuriousAPI"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9.5,<=3.13"
+authors = [
+    { name = "nadobando", email = "7695172+nadobando@users.noreply.github.com" }
+]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Framework :: AsyncIO",
+    "Framework :: Pydantic",
+    "Framework :: FastAPI",
+    "Topic :: Software Development",
+    "Topic :: Database",
+    "Topic :: Internet",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development",
+    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
+    "Topic :: Internet :: WWW/HTTP",
+    "Environment :: Web Environment",
+    "Intended Audience :: Developers",
+    "Typing :: Typed"
+]
+dependencies = [
+    "anyio>=4.0.0,<5",
+    "fastapi>=0.100.0,<0.116",
+    "lark>=1.0",
+    "pydantic>=1.10.13,<3.0.0",
+]
+
+[project.optional-dependencies]
+pydantic-settings = ["pydantic-settings"]
+
+[project.urls]
+Homepage = "https://github.com/nadobando/furiousapi"
+Repository = "https://github.com/nadobando/furiousapi"
+Documentation = "https://nadobando.github.io/furiousapi"
+
+[dependency-groups]
+dev = [
+    "pydantic-settings",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["furiousapi"]
 
 [tool.autopep8]
 aggressive = 3
-# ignore = "E501,W6"  # or ["E501", "W6"]
 in-place = true
 max_line_length = 120
 recursive = true
@@ -16,8 +75,8 @@ skips = ['**/test_*.py', '**/test_*.py']
 exclude = """
 (
   /(
-      .eggs         # exclude a few common directories in the
-    | .git          # root of the project
+      .eggs
+    | .git
     | .hg
     | .mypy_cache
     | .tox
@@ -60,73 +119,6 @@ explicit_package_bases = true
 # strict = true
 plugins = "pydantic.mypy"
 
-[tool.poetry]
-authors = ["nadobando <7695172+nadobando@users.noreply.github.com>"]
-classifiers = [
-    "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent",
-    "Programming Language :: Python",
-    "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
-    "Framework :: AsyncIO",
-    "Framework :: Pydantic",
-    "Framework :: FastAPI",
-    "Topic :: Software Development",
-    "Topic :: Database",
-    "Topic :: Internet",
-    "Topic :: Software Development :: Libraries :: Application Frameworks",
-    "Topic :: Software Development :: Libraries :: Python Modules",
-    "Topic :: Software Development :: Libraries",
-    "Topic :: Software Development",
-    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
-    "Topic :: Internet :: WWW/HTTP",
-    "Environment :: Web Environment",
-    "Intended Audience :: Developers",
-    "Typing :: Typed"
-]
-description = "FastAPI & FuriousAPI"
-documentation = "https://nadobando.github.io/furiousapi"
-homepage = "https://github.com/nadobando/furiousapi"
-license = "MIT"
-name = "furiousapi-core"
-packages = [
-    { include = "furiousapi" }
-]
-readme = "README.md"
-repository = "https://github.com/nadobando/furiousapi"
-version = "0.1.0-dev.1"
-
-[tool.poetry.dependencies]
-anyio = "^4.0.0"
-fastapi = "^0"
-pydantic = ">=1.10.13,<3.0.0"
-lark = "*"
-# core
-python = ">=3.9.5,<=3.13"
-
-pydantic-settings = { version = "*", optional = true }
-[tool.poetry.extras]
-pydantic-settings = ["pydantic-settings"]
-
-[tool.poetry.group.dev.dependencies]
-coverage = "^7.1.0"
-# greenlet = "*"
-httpx = "^0.23.3"
-mypy = "^1.6"
-pre-commit = "^3.0.1"
-pytest = "^7.4.2"
-pytest-asyncio = "^0.20.3"
-pytest-cov = "^4.0.0"
-pytest-xdist = { version = "^3.2.1", extras = ["psutil"] }
-tox = "^4"
-
-[tool.poetry.plugins]
-
 [tool.pydantic-mypy]
 init_forbid_extra = true
 init_typed = true
@@ -162,7 +154,6 @@ exclude = [
     "venv"
 ]
 line-length = 120
-# mypy-init-return = true
 target-version = "py38"
 lint.ignore = [
     "UP",
@@ -188,7 +179,6 @@ lint.ignore = [
 ]
 lint.select = ["ALL"]
 
-
 [tool.ruff.lint.per-file-ignores]
 "furiousapi/api/controllers/base.py" = ["N804"]
 "furiousapi/api/controllers/mixins.py" = ["N805"]
@@ -208,7 +198,7 @@ keep-runtime-typing = true
 
 [tool.semantic_release]
 version_toml = [
-    "pyproject.toml:tool.poetry.version"
+    "pyproject.toml:project.version"
 ]
 version_variables = [
     "furiousapi/core/__init__.py:__version__"
