@@ -187,6 +187,7 @@ lint.select = ["ALL"]
 "furiousapi/db/fields.py" = ["N805"]
 "furiousapi/db/metaclasses.py" = ["N804"]
 "tests/*" = ["ANN201", "S101", "DTZ001", "PLR0913", "S101"]
+"example/*" = ["INP001", "ANN201", "BLE001", "B904", "FAST002", "RET504", "TRY300", "SLOT000"]
 
 [tool.ruff.lint.flake8-annotations]
 mypy-init-return = true
