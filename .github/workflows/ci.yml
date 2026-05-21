@@ -29,6 +29,11 @@ jobs:
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
         pydantic-version: ["pydantic1", "pydantic2"]
+        include:
+          - pydantic-version: pydantic1
+            pydantic-spec: "pydantic>=1.10.13,<2.0.0"
+          - pydantic-version: pydantic2
+            pydantic-spec: "pydantic>=2.0.0,<3.0.0"
     steps:
       - uses: actions/checkout@v4
 
@@ -37,10 +42,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
           enable-caching: true
 
-      - name: Run tox
-        run: |
-          PY=$(echo "${{ matrix.python-version }}" | tr -d '.')
-          uv run tox -e py${PY}-${{ matrix.pydantic-version }}
+      - name: Run pytest with pinned pydantic
+        run: uv run --group dev --with '${{ matrix.pydantic-spec }}' pytest
 
   release:
     name: Release

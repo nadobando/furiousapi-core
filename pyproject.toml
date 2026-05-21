@@ -56,6 +56,17 @@ Documentation = "https://nadobando.github.io/furiousapi"
 
 [dependency-groups]
 dev = [
+    # test runner
+    "pytest>=7.4.2,<8",
+    "pytest-asyncio>=0.20.3,<0.21",
+    "pytest-cov>=4.0.0,<5",
+    "pytest-xdist[psutil]>=3.2.1,<4",
+    "coverage>=7.1.0,<8",
+    "httpx>=0.23.3,<0.24",
+    # tooling
+    "mypy>=1.6,<2",
+    "pre-commit>=4,<5",
+    # framework extra
     "pydantic-settings",
 ]
 
