@@ -43,7 +43,7 @@ class TransformerConfig:
 
 
 class ModelRQL(Generic[TEntity]):
-    __model__: TEntity
+    __model__: Type[TEntity]
     __parser__: ClassVar[Lark] = get_parser()
     __transformer__: Type[BaseRQLModelTransform]
     __transformer_params__: TransformerConfig = TransformerConfig()
@@ -57,7 +57,6 @@ class ModelRQL(Generic[TEntity]):
             "select(id,foreign[name)",
         ],
         "UnexpectedSemicolon": ["eq(is_boolean,true);;select(id,foreign[name]);sort(is_boolean)"],
-        VisitError: [],
     }
 
     @classmethod
