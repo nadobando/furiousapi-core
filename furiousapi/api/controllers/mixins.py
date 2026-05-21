@@ -29,7 +29,6 @@ from furiousapi.core import config
 from furiousapi.db import utils
 from furiousapi.db.repository import BaseRepository  # noqa: TC001
 from furiousapi.pydantic import PYDANTIC_V2
-from furiousapi.rql.params import RQLQueryStr
 
 if TYPE_CHECKING:
     from furiousapi.api.controllers.base import (  # noqa: F401,RUF100
@@ -214,8 +213,9 @@ class ListModelMixin(BaseModelRouteMixin):
 
         signature = inspect.signature(cls.list)
         parameters = signature.parameters.copy()
-        if cls.__filtering__:
-            parameters["query"] = parameters["query"].replace(default=RQLQueryStr(cls.__filtering__, None, alias="q"))
+        # TODO(rql): re-enable __filtering__ wiring once RQLStr-based pipeline is finalized.
+        # if cls.__filtering__:
+        #     parameters["query"] = parameters["query"].replace(annotation=cls.__filtering__, default=Query(None, alias="q"))  # noqa: ERA001, E501
 
         cls.list.__signature__ = signature.replace(parameters=list(parameters.values()))  # type: ignore[attr-defined]
         params = {"response_model": PaginatedResponse[cls.__repository_cls__.__model__]}  # type: ignore[name-defined]
