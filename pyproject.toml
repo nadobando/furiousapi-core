@@ -8,7 +8,7 @@ version = "0.1.0-dev.1"
 description = "FastAPI & FuriousAPI"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.9.5,<3.14"
+requires-python = ">=3.10,<3.14"
 authors = [
     { name = "nadobando", email = "7695172+nadobando@users.noreply.github.com" }
 ]
@@ -17,8 +17,6 @@ classifiers = [
     "Operating System :: OS Independent",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -121,6 +119,7 @@ source = [
 profile = "black"
 
 [tool.mypy]
+python_version = "3.10"
 check_untyped_defs = true
 disable_error_code = "no-redef"
 exclude = [
@@ -166,9 +165,8 @@ exclude = [
     "venv"
 ]
 line-length = 120
-target-version = "py38"
+target-version = "py310"
 lint.ignore = [
-    "UP",
     "SIM108",
     "ANN204",
     "D",
@@ -181,13 +179,17 @@ lint.ignore = [
     "ANN002",
     "EM101",
     "TRY003",
-    "UP035",
     "G004",
     "EM102",
     "I001",
     "ANN401",
     "TD",
-    "FIX002"
+    "FIX002",
+    "TC003",
+    "PLC0415",
+    "RUF059",
+    "LOG014",
+    "RUF100",
 ]
 lint.select = ["ALL"]
 
@@ -207,7 +209,7 @@ mypy-init-return = true
 ignore-variadic-names = true
 
 [tool.ruff.lint.pyupgrade]
-keep-runtime-typing = true
+keep-runtime-typing = false
 
 [tool.semantic_release]
 version_toml = [
