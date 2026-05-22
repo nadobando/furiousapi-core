@@ -7,13 +7,6 @@ repos:
 #        args:
 #          - --keep-runtime-typing
 
-  - repo: https://github.com/psf/black
-    rev: 25.1.0
-    hooks:
-      - id: black
-        args:
-          - --config=pyproject.toml
-
   - repo: https://github.com/pre-commit/pygrep-hooks
     rev: v1.10.0
     hooks:
@@ -28,6 +21,7 @@ repos:
           - --config
           - ./pyproject.toml
           - --fix
+      - id: ruff-format
 
   - repo: https://github.com/PyCQA/bandit
     rev: 1.8.3

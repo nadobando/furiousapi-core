@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 
 
 class BasePagination:
-
     def get_limit(self, next_: Any) -> int:
         return self.validate_limit(next_)
 

@@ -33,7 +33,6 @@ else:
     from pydantic import BaseConfig, Extra
 
     if sys.version_info >= (3, 11):
-
         ConfigType: TypeAlias = type[BaseConfig]  # type: ignore[misc]
     else:
         ConfigType = type[BaseConfig]  # type: ignore[misc]

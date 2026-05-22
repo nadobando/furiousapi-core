@@ -53,7 +53,6 @@ def model_query(model: type[BaseModel], meta: type[ModelMetaclass] = AllOptional
             )
 
     else:
-
         for parameter, model_field in zip(cls_params.values(), model.__fields__.values()):  # type: ignore[attr-defined]
             params.append(
                 inspect.Parameter(

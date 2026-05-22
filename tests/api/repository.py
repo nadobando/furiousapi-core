@@ -11,7 +11,6 @@ from furiousapi.db.pagination import BasePagination
 
 
 class InMemoryPaginator(BasePagination):
-
     def __init__(self, store: dict[str | int | dict[str, Any] | tuple, TEntity]):
         super().__init__()
         self._store = store
@@ -21,7 +20,6 @@ class InMemoryPaginator(BasePagination):
 
 
 class InMemoryDBRepository(BaseRepository[TEntity]):
-
     def __primary_keys__(self):
         return {"id"}
 
@@ -47,7 +45,6 @@ class InMemoryDBRepository(BaseRepository[TEntity]):
         return self._store.get(identifiers)
 
     async def add(self, entity: TEntity) -> TEntity:
-
         if entity.id in self._store:  # type: ignore[attr-defined]
             raise ValueError(f"Key {entity.id} already exists")  # type: ignore[attr-defined]
         entity.id = str(uuid.uuid4())  # type: ignore[attr-defined]
