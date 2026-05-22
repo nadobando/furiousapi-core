@@ -1,4 +1,4 @@
-from typing import Any, Dict, Literal, Optional, Type, Union, cast
+from typing import Any, Literal, Optional, Union, cast
 
 from fastapi._compat import PYDANTIC_V2, FieldInfo, ModelField
 from pydantic import BaseModel
@@ -6,19 +6,19 @@ from pydantic import BaseModel
 # ``model_fields`` is ``Dict[str, FieldInfo]`` in pydantic v2;
 # ``__fields__`` is ``Dict[str, ModelField]`` in pydantic v1. Expose both shapes
 # under one alias so the conditional function variants have matching signatures.
-FieldType = Union[FieldInfo, ModelField]
+FieldType = Union[FieldInfo, ModelField]  # noqa: UP007
 
 if PYDANTIC_V2:
     from pydantic import TypeAdapter
     from pydantic._internal._model_construction import ModelMetaclass
 
-    def get_model_field(model: Type[BaseModel], attr: str) -> Optional[FieldType]:
+    def get_model_field(model: type[BaseModel], attr: str) -> FieldType | None:
         return model.model_fields.get(attr)
 
-    def get_model_fields(model: Type[BaseModel]) -> Dict[str, FieldType]:
-        return cast("Dict[str, FieldType]", model.model_fields)
+    def get_model_fields(model: type[BaseModel]) -> dict[str, FieldType]:
+        return cast("dict[str, FieldType]", model.model_fields)
 
-    AllTypes = Optional[
+    AllTypes = Optional[  # noqa: UP007,UP045
         Literal[
             "none",
             "int",
@@ -53,10 +53,10 @@ if PYDANTIC_V2:
 else:
     from pydantic.main import ModelMetaclass
 
-    def get_model_fields(model: Type[BaseModel]) -> Dict[str, FieldType]:
-        return cast("Dict[str, FieldType]", model.__fields__)
+    def get_model_fields(model: type[BaseModel]) -> dict[str, FieldType]:
+        return cast("dict[str, FieldType]", model.__fields__)
 
-    def get_model_field(model: Type[BaseModel], attr: str) -> Optional[FieldType]:
+    def get_model_field(model: type[BaseModel], attr: str) -> FieldType | None:
         return get_model_fields(model).get(attr)
 
     def field_info_type(field_info: FieldType) -> Any:

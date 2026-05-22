@@ -3,19 +3,9 @@ from __future__ import annotations
 import base64
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Callable,
-    Iterable,
-    List,
-    Optional,
-    Protocol,
-    Set,
-    Tuple,
-    Union,
-)
+from typing import TYPE_CHECKING, Any, Protocol
 
 from furiousapi.core.exceptions import FuriousError
 from furiousapi.pydantic import PYDANTIC_V2
@@ -78,22 +68,22 @@ class PagePagination(OffsetPagination, ABC):
 
         return requested_page
 
-    def get_limit(self, _: Optional[str] = None) -> int:
+    def get_limit(self, _: str | None = None) -> int:
         return self._page_size
 
 
-Cursor = Tuple[Any, ...]
+Cursor = tuple[Any, ...]
 
 
 @dataclass
 class CursorInfo:
     reversed: bool
 
-    cursor: Union[str, None]
-    cursor_arg: Union[str, None]
+    cursor: str | None
+    cursor_arg: str | None
 
-    limit: Union[str, None]
-    limit_arg: Union[str, None]
+    limit: str | None
+    limit_arg: str | None
 
 
 class JSONLoad(Protocol):
@@ -107,7 +97,7 @@ class BaseCursorPagination(BasePagination, ABC):
 
     def __init__(
         self,
-        id_fields: Set[str],
+        id_fields: set[str],
         *args,
         validate_values: bool = True,
         **kwargs,
@@ -128,7 +118,7 @@ class BaseCursorPagination(BasePagination, ABC):
     def reversed(self) -> bool:
         return False
 
-    def parse_cursor(self, cursor: str, field_orderings: List) -> Optional[Tuple[Tuple[str, Any], ...]]:
+    def parse_cursor(self, cursor: str, field_orderings: list) -> tuple[tuple[str, Any], ...] | None:
         if cursor is None:
             return None
         parsed_cursor = self.decode_cursor(cursor)
@@ -145,10 +135,10 @@ class BaseCursorPagination(BasePagination, ABC):
             cursor = tuple(self.__json_dumps__(getattr(item, field.value), default=str) for field in column_fields)
         return self.encode_cursor(cursor)
 
-    def encode_cursor(self, cursor: Tuple[str, ...]) -> str:
+    def encode_cursor(self, cursor: tuple[str, ...]) -> str:
         return self.encode_value(self.delimiter.join(str(value) for value in cursor))
 
-    def decode_cursor(self, cursor: str) -> List[str]:
+    def decode_cursor(self, cursor: str) -> list[str]:
         cursor = self.decode_value(cursor)
         return [self.__json_loads__(value) for value in cursor.split(self.delimiter)]
 
@@ -164,10 +154,10 @@ class BaseCursorPagination(BasePagination, ABC):
         encoded += (3 - ((len(encoded) + 3) % 4)) * b"="  # Add back padding.
         return base64.b64decode(encoded).decode()
 
-    def get_filter(self, field_orderings: List[Tuple[str, str]], cursor: Cursor) -> Any:
+    def get_filter(self, field_orderings: list[tuple[str, str]], cursor: Cursor) -> Any:
         raise NotImplementedError
 
-    def get_previous_clause(self, column_cursors: List[Tuple[Any, Any, Tuple[str, Any]]]) -> Any:
+    def get_previous_clause(self, column_cursors: list[tuple[Any, Any, tuple[str, Any]]]) -> Any:
         raise NotImplementedError
 
     @staticmethod
@@ -177,13 +167,13 @@ class BaseCursorPagination(BasePagination, ABC):
     def _prepare_current_clause(self, column: Any, direction: Sorting, value: Any) -> Any:
         raise NotImplementedError
 
-    def get_filter_clause(self, column_cursors: List[Tuple[Any, Sorting, Tuple[str, Any]]]) -> Any:
+    def get_filter_clause(self, column_cursors: list[tuple[Any, Sorting, tuple[str, Any]]]) -> Any:
         raise NotImplementedError
 
     @abstractmethod
-    def get_field_orderings(self, query: Any) -> List: ...
+    def get_field_orderings(self, query: Any) -> list: ...
 
 
 class BaseRelayPagination(BaseCursorPagination, ABC):
-    def make_cursors(self, items: List[TEntity], field_orderings: List[Sorting]) -> Tuple[str, ...]:
+    def make_cursors(self, items: list[TEntity], field_orderings: list[Sorting]) -> tuple[str, ...]:
         return tuple(self.render_cursor(item, field_orderings) for item in items)

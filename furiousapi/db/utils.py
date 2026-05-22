@@ -3,21 +3,10 @@ from __future__ import annotations
 import inspect
 import logging
 import sys
+from collections.abc import Iterator
 from enum import Enum
 from functools import lru_cache
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Dict,
-    Iterator,
-    List,
-    Optional,
-    Set,
-    Tuple,
-    Type,
-    Union,
-    cast,
-)
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import fastapi._compat
 from fastapi import Query
@@ -45,9 +34,9 @@ else:
 
     if sys.version_info >= (3, 11):
 
-        ConfigType: TypeAlias = Type[BaseConfig]  # type: ignore[misc]
+        ConfigType: TypeAlias = type[BaseConfig]  # type: ignore[misc]
     else:
-        ConfigType = Type[BaseConfig]  # type: ignore[misc]
+        ConfigType = type[BaseConfig]  # type: ignore[misc]
 if TYPE_CHECKING:
     from furiousapi.pydantic import FieldType, ModelField
 
@@ -63,8 +52,8 @@ NOT_SET = NotSet()
 
 
 def get_model_fields(
-    model: Type[BaseModel], include: Optional[Set[str]] = None, *, recursive: bool = False
-) -> Dict[str, str]:
+    model: type[BaseModel], include: set[str] | None = None, *, recursive: bool = False
+) -> dict[str, str]:
     keys = {}
     if PYDANTIC_V2:
         config = model.model_config
@@ -91,13 +80,13 @@ def get_model_fields(
 
 
 def get_model_fields_enum(
-    model: Type[BaseModel],
-    override_name: Optional[str] = None,
+    model: type[BaseModel],
+    override_name: str | None = None,
     *,
-    include: Optional[Set[str]] = None,
-    exclude: Optional[Set[str]] = None,
+    include: set[str] | None = None,
+    exclude: set[str] | None = None,
     recursive: bool = False,
-) -> Type[Enum]:
+) -> type[Enum]:
     fields = get_model_fields(model, include, recursive=recursive)
     if exclude:
         fields = {k: v for k, v in fields.items() if k not in exclude}
@@ -108,11 +97,11 @@ def get_model_fields_enum(
 
 class FieldAlias(NamedTuple):
     name: str
-    field: "ModelField"
+    field: ModelField
 
 
 @lru_cache
-def model_alias_mapping(model: Type[BaseModel]) -> Dict[Optional[str], FieldAlias]:
+def model_alias_mapping(model: type[BaseModel]) -> dict[str | None, FieldAlias]:
     aliases = {}
     if PYDANTIC_V2:
         model_fields: dict = model.model_fields
@@ -125,7 +114,7 @@ def model_alias_mapping(model: Type[BaseModel]) -> Dict[Optional[str], FieldAlia
     return aliases
 
 
-Projection = Dict[str, Union[int, Dict[str, Any]]]
+Projection = dict[str, int | dict[str, Any]]
 
 
 def build_config() -> ConfigType:
@@ -137,11 +126,11 @@ def build_config() -> ConfigType:
 
 
 def clean_dict(d: dict) -> dict:
-    stack: List[Iterator[Tuple[str, Any]]] = [iter(d.items())]
+    stack: list[Iterator[tuple[str, Any]]] = [iter(d.items())]
     dict_ = {}
 
     while stack:
-        _next: Union[NotSet, Tuple[str, Any]] = next(stack[-1], NOT_SET)
+        _next: NotSet | tuple[str, Any] = next(stack[-1], NOT_SET)
         if isinstance(_next, NotSet):
             stack.pop()
         else:
@@ -155,29 +144,27 @@ def clean_dict(d: dict) -> dict:
 
 
 def _convert_pydantic(_: str, namespaces: dict, __: tuple) -> None:
-    annotations: Dict[str, Any] = namespaces.get(ANNOTATIONS, {})
+    annotations: dict[str, Any] = namespaces.get(ANNOTATIONS, {})
     for field in annotations:
-        annotations[field] = Optional[annotations[field]]
-        field_info: Optional[FieldInfo] = namespaces.get(field)
+        annotations[field] = Optional[annotations[field]]  # noqa: UP007,UP045
+        field_info: FieldInfo | None = namespaces.get(field)
         if field_info and isinstance(field_info, FieldInfo) and field_info.default is Ellipsis:
             field_info.default = None
 
     namespaces[ANNOTATIONS] = annotations
 
 
-def _remove_extra_data_from_signature(cls: Type[BaseModel]) -> None:
+def _remove_extra_data_from_signature(cls: type[BaseModel]) -> None:
     sig = inspect.signature(cls)
     parameters = dict(sig.parameters)
     parameters.pop("extra_data", None)
     cls.__signature__ = sig.replace(parameters=list(parameters.values()))
 
 
-def init_query_param(
-    model_field: "FieldType", name: str, alias: str, parameter: inspect.Parameter
-) -> inspect.Parameter:
+def init_query_param(model_field: FieldType, name: str, alias: str, parameter: inspect.Parameter) -> inspect.Parameter:
     # In v2, callers pass a pydantic FieldInfo (carries .annotation, .json_schema_extra).
     # In v1, callers pass a pydantic ModelField (carries .field_info, .type_).
-    extra: Dict[str, Any]
+    extra: dict[str, Any]
     if PYDANTIC_V2:
         if not isinstance(model_field, FieldInfo):
             raise TypeError(f"Expected FieldInfo in pydantic v2 mode, got {type(model_field).__name__}")

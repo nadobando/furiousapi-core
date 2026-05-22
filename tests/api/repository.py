@@ -1,6 +1,7 @@
 import uuid
+from collections.abc import Iterable
 from enum import Enum
-from typing import Any, Dict, Iterable, List, Optional, Union
+from typing import Any
 
 from furiousapi.api.pagination import PaginatedResponse, PaginationStrategyEnum
 from furiousapi.api.responses import BulkResponseModel
@@ -11,7 +12,7 @@ from furiousapi.db.pagination import BasePagination
 
 class InMemoryPaginator(BasePagination):
 
-    def __init__(self, store: Dict[Union[str, int, Dict[str, Any], tuple], TEntity]):
+    def __init__(self, store: dict[str | int | dict[str, Any] | tuple, TEntity]):
         super().__init__()
         self._store = store
 
@@ -25,7 +26,7 @@ class InMemoryDBRepository(BaseRepository[TEntity]):
         return {"id"}
 
     def __init__(self) -> None:
-        self._store: Dict[Union[str, int, Dict[str, Any], tuple], TEntity] = {}
+        self._store: dict[str | int | dict[str, Any] | tuple, TEntity] = {}
         super().__init__()
 
     def __init_paginators__(self) -> None:
@@ -35,11 +36,11 @@ class InMemoryDBRepository(BaseRepository[TEntity]):
 
     async def get(
         self,
-        identifiers: Union[int, str, Dict[str, Any], tuple],
-        fields: Optional[Iterable[Enum]] = None,  # noqa: ARG002
+        identifiers: int | str | dict[str, Any] | tuple,
+        fields: Iterable[Enum] | None = None,  # noqa: ARG002
         *,
         should_error: bool = True,
-    ) -> Optional[TEntity]:
+    ) -> TEntity | None:
         if not self._store.get(identifiers) and should_error:
             raise EntityNotFoundError(self.__model__, identifiers)
 
@@ -54,7 +55,7 @@ class InMemoryDBRepository(BaseRepository[TEntity]):
         self._store[entity.id] = entity  # type: ignore[attr-defined]
         return entity
 
-    async def patch(self, id_: str, partial: TEntity, **kwargs) -> Optional[TEntity]:
+    async def patch(self, id_: str, partial: TEntity, **kwargs) -> TEntity | None:
         if id_ not in self._store:
             raise KeyError(f"Key {id_} does not exist")
         existing = self._store[id_]
@@ -63,27 +64,27 @@ class InMemoryDBRepository(BaseRepository[TEntity]):
             setattr(existing, k, v)
         return existing
 
-    async def replace(self, id_: str, entity: TEntity, **kwargs) -> Optional[TEntity]:
+    async def replace(self, id_: str, entity: TEntity, **kwargs) -> TEntity | None:
         if id_ not in self._store:
             raise KeyError(f"Key {id_} does not exist")
         self._store[entity.id] = entity
         return entity
 
-    async def delete(self, entity: Union[TEntity, str, int], **kwargs) -> None:
+    async def delete(self, entity: TEntity | str | int, **kwargs) -> None:
         if entity not in self._store:  # type: ignore[union-attr]
             raise KeyError(f"Key {entity} does not exist")  # type: ignore[union-attr]
         del self._store[entity]  # type: ignore[union-attr,arg-type]
 
-    async def bulk_create(self, bulk: List[TEntity]) -> BulkResponseModel:  # type: ignore[empty-body]
+    async def bulk_create(self, bulk: list[TEntity]) -> BulkResponseModel:  # type: ignore[empty-body]
         pass
 
-    async def bulk_delete(self, bulk: List[Union[TEntity, Any]]) -> List:  # type: ignore[empty-body]
+    async def bulk_delete(self, bulk: list[TEntity | Any]) -> list:  # type: ignore[empty-body]
         pass
 
-    async def bulk_update(self, bulk: List[TEntity]) -> List:  # type: ignore[empty-body]
+    async def bulk_update(self, bulk: list[TEntity]) -> list:  # type: ignore[empty-body]
         pass
 
-    def query(self, query: Any = None, *args, **kwargs) -> Optional[Query]:
+    def query(self, query: Any = None, *args, **kwargs) -> Query | None:
         return query
 
     async def execute(self, _: Any) -> Any:

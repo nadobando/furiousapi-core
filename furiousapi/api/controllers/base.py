@@ -5,6 +5,7 @@ import inspect
 import logging
 import sys
 import typing
+from collections.abc import Callable, Sequence
 from functools import wraps
 
 # noinspection PyUnresolvedReferences
@@ -12,14 +13,7 @@ from typing import (  # type:ignore[attr-defined]
     TYPE_CHECKING,
     Annotated,
     Any,
-    Callable,
     ClassVar,
-    Dict,
-    List,
-    Optional,
-    Sequence,
-    Type,
-    Union,
     _AnnotatedAlias,
     cast,
     get_args,
@@ -47,14 +41,11 @@ else:
 
 if TYPE_CHECKING:
     from enum import Enum
+    from typing import TypeAlias
 
     from fastapi.types import IncEx
     from starlette.routing import BaseRoute
-
-    if sys.version_info >= (3, 10):
-        from typing import TypeAlias
-    else:
-        from typing_extensions import TypeAlias, Doc
+    from typing_extensions import Doc
 
 from furiousapi.api.controllers.mixins import (
     BaseRouteMixin,
@@ -110,7 +101,7 @@ def _generate_init_fn_with_injected_dependencies(cls: type) -> None:
         setattr(cls, f"__{name}_cls__", meta.return_type)
         if PYDANTIC_V2:
             pass
-        elif is_classvar(cast("Type[Any]", meta)):
+        elif is_classvar(cast("type[Any]", meta)):
             continue
         parameter_kwargs = {"default": meta.dependency}
         dependency_names.append(name)
@@ -221,7 +212,7 @@ def action(
         ),
     ] = Default(None),
     status_code: Annotated[
-        Optional[int],
+        int | None,
         Doc(
             """
                     The default status code to be used for the response.
@@ -234,7 +225,7 @@ def action(
         ),
     ] = None,
     tags: Annotated[
-        Optional[List[Union[str, Enum]]],
+        list[str | Enum] | None,
         Doc(
             """
                     A list of tags to be applied to the *path operation*.
@@ -247,7 +238,7 @@ def action(
         ),
     ] = None,
     dependencies: Annotated[
-        Optional[Sequence[params.Depends]],
+        Sequence[params.Depends] | None,
         Doc(
             """
                     A list of dependencies (using `Depends()`) to be applied to the
@@ -259,7 +250,7 @@ def action(
         ),
     ] = None,
     summary: Annotated[
-        Optional[str],
+        str | None,
         Doc(
             """
                     A summary for the *path operation*.
@@ -272,7 +263,7 @@ def action(
         ),
     ] = None,
     description: Annotated[
-        Optional[str],
+        str | None,
         Doc(
             """
                     A description for the *path operation*.
@@ -300,7 +291,7 @@ def action(
         ),
     ] = "Successful Response",
     responses: Annotated[
-        Optional[Dict[Union[int, str], Dict[str, Any]]],
+        dict[int | str, dict[str, Any]] | None,
         Doc(
             """
                     Additional responses that could be returned by this *path operation*.
@@ -310,7 +301,7 @@ def action(
         ),
     ] = None,
     deprecated: Annotated[
-        Optional[bool],
+        bool | None,
         Doc(
             """
                     Mark this *path operation* as deprecated.
@@ -320,7 +311,7 @@ def action(
         ),
     ] = None,
     operation_id: Annotated[
-        Optional[str],
+        str | None,
         Doc(
             """
                     Custom operation ID to be used by this *path operation*.
@@ -340,7 +331,7 @@ def action(
         ),
     ] = None,
     response_model_include: Annotated[
-        Optional[IncEx],
+        IncEx | None,
         Doc(
             """
                     Configuration passed to Pydantic to include only certain fields in the
@@ -352,7 +343,7 @@ def action(
         ),
     ] = None,
     response_model_exclude: Annotated[
-        Optional[IncEx],
+        IncEx | None,
         Doc(
             """
                     Configuration passed to Pydantic to exclude certain fields in the
@@ -441,7 +432,7 @@ def action(
         ),
     ] = True,
     response_class: Annotated[
-        Type[Response],
+        type[Response],
         Doc(
             """
                     Response class to be used for this *path operation*.
@@ -454,7 +445,7 @@ def action(
         ),
     ] = Default(JSONResponse),
     name: Annotated[
-        Optional[str],
+        str | None,
         Doc(
             """
                     Name for this *path operation*. Only used internally.
@@ -462,7 +453,7 @@ def action(
         ),
     ] = None,
     callbacks: Annotated[
-        Optional[List[BaseRoute]],
+        list[BaseRoute] | None,
         Doc(
             """
                     List of *path operations* that will be used as OpenAPI callbacks.
@@ -478,7 +469,7 @@ def action(
         ),
     ] = None,
     openapi_extra: Annotated[
-        Optional[Dict[str, Any]],
+        dict[str, Any] | None,
         Doc(
             """
                     Extra metadata to be included in the OpenAPI schema for this *path
@@ -526,7 +517,7 @@ def action(path: str, **route_kwargs):
 
 class CBVMeta(abc.ABCMeta):
     def __new__(mcs, name: str, bases: tuple, namespace: dict, **router_kwargs) -> Any:
-        cls: Type[CBV] = cast("Type[CBV]", super().__new__(mcs, name, bases, namespace))
+        cls: type[CBV] = cast("type[CBV]", super().__new__(mcs, name, bases, namespace))
         parents = [b for b in bases if isinstance(b, mcs)]
         if not parents or namespace.get("__abstract__", False):
             return cls
@@ -558,7 +549,7 @@ class CBVMeta(abc.ABCMeta):
 class CBV(abc.ABC, metaclass=CBVMeta):
     api_router: ClassVar[APIRouter]
     __enabled_routes__: ClassVar[Sequence[str]] = ()
-    __route_config__: ClassVar[Dict[str, dict]] = {}
+    __route_config__: ClassVar[dict[str, dict]] = {}
     __abstract__: bool = True
 
 

@@ -1,5 +1,3 @@
-from typing import Type
-
 import pytest
 from pydantic import BaseModel
 
@@ -9,7 +7,7 @@ from furiousapi.rql.transform import RQLModelTransform
 
 
 @pytest.fixture
-def rql_model(model: BaseModel) -> Type[ModelRQL]:
+def rql_model(model: BaseModel) -> type[ModelRQL]:
     class MyModelRQL(ModelRQL):
         __model__ = model
         __transformer__ = RQLModelTransform
@@ -18,7 +16,7 @@ def rql_model(model: BaseModel) -> Type[ModelRQL]:
 
 
 @pytest.fixture
-def restricted_rql_model(model: BaseModel) -> Type[ModelRQL]:
+def restricted_rql_model(model: BaseModel) -> type[ModelRQL]:
     class MyModelRQL(ModelRQL):
         __model__ = model
         __transformer__ = RQLModelTransform
@@ -46,6 +44,6 @@ def test_rql_query(rql_model: ModelRQL, rql: str, expected: str) -> None:
 @pytest.mark.parametrize(
     ("rql", "expected"), [pytest.param(*x["params"], id=x["id"]) for x in tests.rql.text_queries.ERROR_CASES]
 )
-def test_rql_query_error(restricted_rql_model: Type[ModelRQL], rql: str, expected: Type[Exception]) -> None:
+def test_rql_query_error(restricted_rql_model: type[ModelRQL], rql: str, expected: type[Exception]) -> None:
     with pytest.raises(expected):
         restricted_rql_model.parse(rql, "cursor")

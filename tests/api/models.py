@@ -12,7 +12,7 @@ from tests.api.repository import InMemoryDBRepository
 
 
 class Model(BaseModel):
-    id: Optional[str] = Field(None, alias="_id")
+    id: Optional[str] = Field(None, alias="_id")  # noqa: UP007,UP045
 
 
 class MyModel1(Model):

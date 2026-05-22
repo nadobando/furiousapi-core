@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import TYPE_CHECKING, Annotated, Any, Dict, List, Literal, Optional, Union
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Union
 
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
@@ -14,11 +14,11 @@ if TYPE_CHECKING:
 class PartialModelResponse(JSONResponse):
     def __init__(
         self,
-        content: Optional[BaseModel],
+        content: BaseModel | None,
         status_code: int = 200,
-        headers: Optional[Dict[str, str]] = None,
-        media_type: Optional[str] = None,
-        background: Optional[BackgroundTask] = None,
+        headers: dict[str, str] | None = None,
+        media_type: str | None = None,
+        background: BackgroundTask | None = None,
     ) -> None:
         content = jsonable_encoder(content, by_alias=True)
         super().__init__(content, status_code, headers, media_type, background)
@@ -43,11 +43,11 @@ class BulkItemError(BaseModel):
     detail: str
 
 
-BulkResponseModelUnion = Union[BulkItemError, BulkItemSuccess]
+BulkResponseModelUnion = Union[BulkItemError, BulkItemSuccess]  # noqa: UP007
 
 BulkItemResult = Annotated[BulkResponseModelUnion, Field(discriminator="status")]
 
 
 class BulkResponseModel(BaseModel):
-    items: List[BulkItemResult]
+    items: list[BulkItemResult]
     has_errors: bool = False

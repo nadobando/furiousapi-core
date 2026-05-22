@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Type
+from typing import TYPE_CHECKING, Any
 
 from furiousapi.core.exceptions import FuriousError
 
@@ -9,13 +9,13 @@ if TYPE_CHECKING:
 
 
 class FuriousEntityError(FuriousError):
-    def __init__(self, model: Type["BaseModel"], **kwargs):
+    def __init__(self, model: type[BaseModel], **kwargs):
         super().__init__()
         self.model = model
 
 
 class EntityNotFoundError(FuriousEntityError):
-    def __init__(self, model: Type["BaseModel"], id_: Any):
+    def __init__(self, model: type[BaseModel], id_: Any):
         super().__init__(model)
         self.id = id_
 
@@ -24,7 +24,7 @@ class EntityNotFoundError(FuriousEntityError):
 
 
 class EntityAlreadyExistsError(FuriousEntityError):
-    def __init__(self, model: Type["BaseModel"], id_: Any):
+    def __init__(self, model: type[BaseModel], id_: Any):
         super().__init__(model)
         self.id = id_
 

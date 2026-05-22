@@ -1,9 +1,9 @@
 import operator
-from typing import Dict, List, Tuple, Type, TypedDict
+from typing import TypedDict
 
 from furiousapi.rql.exceptions import RQLFilterNotAllowedError, RQLSortNotAllowedError
 
-ALL_TEST_CASES: List[Dict] = [
+ALL_TEST_CASES: list[dict] = [
     {
         "params": ("select(*)", {"fields": {"*": None}, "filter": [], "sort": []}),
         "id": "select_all_fields",
@@ -183,11 +183,11 @@ ALL_TEST_CASES: List[Dict] = [
 
 
 class ParamDictError(TypedDict):
-    params: Tuple[str, Type[Exception]]
+    params: tuple[str, type[Exception]]
     id: str
 
 
-ERROR_CASES: List[ParamDictError] = [
+ERROR_CASES: list[ParamDictError] = [
     {
         "params": (
             "sort(+name)",

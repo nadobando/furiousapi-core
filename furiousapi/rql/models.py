@@ -1,17 +1,5 @@
 import dataclasses
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    ClassVar,
-    Dict,
-    Generic,
-    List,
-    NoReturn,
-    Optional,
-    Set,
-    Type,
-    Union,
-)
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, NoReturn
 
 from lark import Lark, LarkError, UnexpectedCharacters, UnexpectedToken
 from lark.exceptions import VisitError
@@ -33,22 +21,22 @@ if TYPE_CHECKING:
 
 @dataclasses.dataclass
 class TransformerConfig:
-    allowed_sort: Optional[Set[str]] = None
-    denied_sort: Optional[Set[str]] = None
-    wildcard_fields: Optional[Dict[str, List[str]]] = None
-    denied_fields: Optional[Set[str]] = None
-    allowed_fields: Optional[Set[str]] = None
-    allowed_filters: Optional[Dict[str, Set[str]]] = None
-    denied_filters: Optional[Dict[str, Set[str]]] = None
+    allowed_sort: set[str] | None = None
+    denied_sort: set[str] | None = None
+    wildcard_fields: dict[str, list[str]] | None = None
+    denied_fields: set[str] | None = None
+    allowed_fields: set[str] | None = None
+    allowed_filters: dict[str, set[str]] | None = None
+    denied_filters: dict[str, set[str]] | None = None
 
 
 class ModelRQL(Generic[TEntity]):
-    __model__: Type[TEntity]
+    __model__: type[TEntity]
     __parser__: ClassVar[Lark] = get_parser()
-    __transformer__: Type[BaseRQLModelTransform]
+    __transformer__: type[BaseRQLModelTransform]
     __transformer_params__: TransformerConfig = TransformerConfig()
 
-    RQL_ERRORS: ClassVar[Dict[Union[Type[FuriousRQLSyntaxError], str], List[str]]] = {
+    RQL_ERRORS: ClassVar[dict[type[FuriousRQLSyntaxError] | str, list[str]]] = {
         MismatchedParenthesesError: [
             "eq(is_boolean,true);select(id,foreign[name]));sort(is_boolean)",
             "eq(is_boolean,true;select(id,foreign[name]);sort(is_boolean)",

@@ -1,5 +1,3 @@
-from typing import Set, Union
-
 from furiousapi.core.exceptions import FuriousError
 
 
@@ -50,7 +48,7 @@ class RQLFieldValidationError(FuriousRQLError):
 
 # --- Filter validation errors ---
 class RQLFilterNotAllowedError(RQLFieldValidationError):
-    def __init__(self, field: str, operator: str, allowed_ops: Union[Set, None] = None):
+    def __init__(self, field: str, operator: str, allowed_ops: set | None = None):
         allowed_msg = f"(allowed: {allowed_ops})" if allowed_ops else "(no filters allowed)"
         reason = f"filter operator '{operator}' is not allowed {allowed_msg}"
         super().__init__(field, reason)

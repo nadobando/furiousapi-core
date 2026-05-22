@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Type, get_args, get_origin
+from typing import Any, get_args, get_origin
 
 
-def get_most_inner_class(annotation: Any) -> Type | None:
+def get_most_inner_class(annotation: Any) -> type | None:
     """
     Recursively retrieves the most inner class from a type annotation.
 

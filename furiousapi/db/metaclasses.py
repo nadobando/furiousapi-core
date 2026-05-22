@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 import logging
-from typing import TYPE_CHECKING, Any, Dict, Tuple, Type
+from typing import TYPE_CHECKING, Any
 
 from fastapi import Depends, Query, params
 
@@ -19,14 +19,14 @@ logger = logging.getLogger(__name__)
 
 
 class AllOptionalMeta(ModelMetaclass):
-    def __new__(mcs, name: str, bases: Tuple[type], namespaces: Dict[str, Any], **kwargs) -> Type[BaseModel]:
+    def __new__(mcs, name: str, bases: tuple[type], namespaces: dict[str, Any], **kwargs) -> type[BaseModel]:
         _convert_pydantic(name, namespaces, bases)
         new = super().__new__(mcs, name, bases, namespaces, **kwargs)
         _remove_extra_data_from_signature(new)
         return new
 
 
-def model_query(model: Type[BaseModel], meta: Type[ModelMetaclass] = AllOptionalMeta) -> params.Depends:
+def model_query(model: type[BaseModel], meta: type[ModelMetaclass] = AllOptionalMeta) -> params.Depends:
     cls = meta(f"Optional{model.__name__}", (model,), {})
 
     def dependency(**kwargs) -> BaseModel:

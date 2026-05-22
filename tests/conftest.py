@@ -1,5 +1,3 @@
-from typing import Type
-
 import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
@@ -22,7 +20,7 @@ from tests.api.models import (
 
 
 @pytest.fixture
-def model() -> Type[MyModel1]:
+def model() -> type[MyModel1]:
     return MyModel1
 
 

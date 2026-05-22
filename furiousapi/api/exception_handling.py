@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Dict, Type
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from starlette.requests import Request
@@ -19,7 +19,7 @@ from furiousapi.db.exceptions import (
     FuriousEntityError,
 )
 
-DB_TO_HTTP_ERROR: Dict[Type[FuriousEntityError], Type] = {
+DB_TO_HTTP_ERROR: dict[type[FuriousEntityError], type] = {
     EntityNotFoundError: ResourceNotFoundError,
     EntityAlreadyExistsError: ConflictError,
 }

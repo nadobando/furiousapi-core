@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Optional, Type
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from _pytest.fixtures import FixtureRequest
     from pydantic import BaseModel
 
 
-def get_first_doc_from_cache(request: FixtureRequest, cache_key: str, model: Optional[Type[BaseModel]] = None):
+def get_first_doc_from_cache(request: FixtureRequest, cache_key: str, model: type[BaseModel] | None = None):
     docs = request.config.cache.get(cache_key, None)
     if not (docs and docs):
         return None

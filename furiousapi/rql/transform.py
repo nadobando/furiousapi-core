@@ -1,6 +1,7 @@
 import datetime
 import operator
-from typing import Any, Callable, Dict, List, Literal, Optional, Set, Tuple, Type, Union
+from collections.abc import Callable
+from typing import Any, Literal
 
 from lark import Token
 from lark.visitors import Transformer_InPlace
@@ -26,24 +27,24 @@ if PYDANTIC_V2:
 else:
     from pydantic.datetime_parse import parse_date, parse_datetime, parse_time
 
-SelectedField = Dict[str, Union[None, Dict[str, "SelectedField"]]]
+SelectedField = dict[str, None | dict[str, "SelectedField"]]
 
 
 class BaseRQLModelTransform(Transformer_InPlace):
-    model: Type[BaseModel]
+    model: type[BaseModel]
 
     def __init__(
         self,
-        model: Type[BaseModel],
+        model: type[BaseModel],
         *,
         include_cursor_sort_fields: bool = False,
-        allowed_sort: Optional[Set[str]] = None,
-        denied_sort: Optional[Set[str]] = None,
-        wildcard_fields: Optional[Dict[str, List[str]]] = None,
-        denied_fields: Optional[Set[str]] = None,
-        allowed_fields: Optional[Set[str]] = None,
-        allowed_filters: Optional[Dict[str, Set[str]]] = None,
-        denied_filters: Optional[Dict[str, Set[str]]] = None,
+        allowed_sort: set[str] | None = None,
+        denied_sort: set[str] | None = None,
+        wildcard_fields: dict[str, list[str]] | None = None,
+        denied_fields: set[str] | None = None,
+        allowed_fields: set[str] | None = None,
+        allowed_filters: dict[str, set[str]] | None = None,
+        denied_filters: dict[str, set[str]] | None = None,
     ):
         super().__init__(visit_tokens=True)
         self.model = model
@@ -57,10 +58,10 @@ class BaseRQLModelTransform(Transformer_InPlace):
         self.allowed_filters = allowed_filters or {}
         self.denied_filters = denied_filters or {}
 
-        self.__sorting_fields__: List[Tuple[str, Callable]] = []
-        self.__filter_fields__: List[List] = []
+        self.__sorting_fields__: list[tuple[str, Callable]] = []
+        self.__filter_fields__: list[list] = []
         self.__selected_fields__: SelectedField = {}
-        self.__distinct_fields__: List = []
+        self.__distinct_fields__: list = []
 
     INT = int
     FLOAT = float
@@ -95,7 +96,7 @@ class BaseRQLModelTransform(Transformer_InPlace):
         return "*"
 
     @staticmethod
-    def CONST(c: Token) -> Optional[str]:  # noqa: N802
+    def CONST(c: Token) -> str | None:  # noqa: N802
         if c == "empty()":
             return ""
         if c.lower().startswith("null"):
@@ -111,23 +112,23 @@ class BaseRQLModelTransform(Transformer_InPlace):
         return p.value
 
     @staticmethod
-    def prop(p: List[str]) -> str:
+    def prop(p: list[str]) -> str:
         return p[0]
 
     @staticmethod
-    def val(v: List[Union[str, int, float, bool, None]]) -> Union[str, int, float, bool, None]:
+    def val(v: list[str | int | float | bool | None]) -> str | int | float | bool | None:
         return v[0]
 
     @staticmethod
-    def value_tuple(t: List[Union[str, int, float, bool, None]]) -> List[Union[str, int, float, bool, None]]:
+    def value_tuple(t: list[str | int | float | bool | None]) -> list[str | int | float | bool | None]:
         return t
 
     @staticmethod
-    def expr_term(e: List[List]) -> List:
+    def expr_term(e: list[list]) -> list:
         return e[0]
 
     @staticmethod
-    def list_term(t: List[Token]) -> str:
+    def list_term(t: list[Token]) -> str:
         return t[0].value
 
     @staticmethod
@@ -135,55 +136,55 @@ class BaseRQLModelTransform(Transformer_InPlace):
         return t
 
     @staticmethod
-    def comp_term(ct: List[Token]) -> str:
+    def comp_term(ct: list[Token]) -> str:
         op = COMPARATOR_MAPPING.get(ct[0].value)
         if not op:
             raise NotImplementedError(ct[0].value)
         return op
 
     @staticmethod
-    def search_term(term: List[Token]) -> str:
+    def search_term(term: list[Token]) -> str:
         return term[0].value
 
-    def sign_prop(self, expression: List[Union[Token, str]]) -> Tuple[str, Callable]:
+    def sign_prop(self, expression: list[Token | str]) -> tuple[str, Callable]:
         direction, field = expression
         self.validate_sort_field(field)
         sign: Callable = operator.pos if direction in {None, "+"} else operator.neg
         return field, sign
 
-    def comp(self, c: List) -> List:
+    def comp(self, c: list) -> list:
         op, field, _ = c
         self.validate_filter_field(field, op)
         return c
 
-    def listing(self, term: Tuple[str, str, Any]) -> List:
+    def listing(self, term: tuple[str, str, Any]) -> list:
         op, field, values = term[0], term[1], term[2:]
         self.validate_filter_field(field, op)
         return [COMPARATOR_MAPPING[op], field, values]
 
-    def searching(self, expression: List) -> List:
+    def searching(self, expression: list) -> list:
         func, field, value = expression
         self.validate_filter_field(field, func)
         return expression
 
     # Logical
     @staticmethod
-    def logical(expression: List[List[Any]]) -> List:
+    def logical(expression: list[list[Any]]) -> list:
         return expression[0]
 
     @staticmethod
-    def not_(expression: List[List]) -> List[Union[Any, List[Any]]]:
+    def not_(expression: list[list]) -> list[Any | list[Any]]:
         return ["__not__", expression[0]]
 
     @staticmethod
-    def and_(expression: List[List]) -> List[Union[Any, List[Any]]]:
+    def and_(expression: list[list]) -> list[Any | list[Any]]:
         return ["__and__", expression]
 
     @staticmethod
-    def or_(expression: List[List]) -> List[Union[Any, List[Any]]]:
+    def or_(expression: list[list]) -> list[Any | list[Any]]:
         return ["__or__", expression]
 
-    def selection(self, expression: List[Union[Dict, str]]) -> SelectedField:
+    def selection(self, expression: list[dict | str]) -> SelectedField:
         result = {}
         for selection in expression:
             if isinstance(selection, dict):
@@ -192,10 +193,10 @@ class BaseRQLModelTransform(Transformer_InPlace):
                 result[selection] = None
         return result
 
-    def nested_selection(self, t: Token) -> Dict:
+    def nested_selection(self, t: Token) -> dict:
         parent = str(t[0])
         children = t[1:]
-        parent_tree: Dict = {parent: {}}
+        parent_tree: dict = {parent: {}}
         for child in children:
             if isinstance(child, dict):
                 parent_tree[parent].update(child)
@@ -204,26 +205,26 @@ class BaseRQLModelTransform(Transformer_InPlace):
 
         return parent_tree
 
-    def selectable_field(self, f: List[Union[str, Dict]]) -> Any:
+    def selectable_field(self, f: list[str | dict]) -> Any:
         return f[0]
 
     # Top Terms
-    def select(self, selected: List[SelectedField]) -> List[SelectedField]:
+    def select(self, selected: list[SelectedField]) -> list[SelectedField]:
         for selection in selected:
             self.__selected_fields__.update(selection)
         return selected
 
-    def filter(self, f: List[Any]) -> List[Any]:
+    def filter(self, f: list[Any]) -> list[Any]:
         if len(f) == 1 and f[0] is NotImplemented:
             return f
         self.__filter_fields__.extend(f)
         return f[0]
 
-    def sort(self, sorting_fields: List[Tuple[str, Callable]]) -> List[Tuple[str, Callable]]:
+    def sort(self, sorting_fields: list[tuple[str, Callable]]) -> list[tuple[str, Callable]]:
         self.__sorting_fields__.extend(sorting_fields)
         return sorting_fields
 
-    def distinct(self, d: List[str]) -> List[str]:
+    def distinct(self, d: list[str]) -> list[str]:
         self.__distinct_fields__.extend(d)
         return d
 
@@ -248,15 +249,15 @@ class BaseRQLModelTransform(Transformer_InPlace):
         if self.denied_fields and field in self.denied_fields:
             raise RQLSelectDeniedError(field)
 
-    def transform_wildcard(self, parent_prefix: str) -> Union[List[str], str]:
+    def transform_wildcard(self, parent_prefix: str) -> list[str] | str:
         return self.wildcard_fields.get(parent_prefix, parent_prefix)
 
-    def start(self, sta: List) -> Any:
+    def start(self, sta: list) -> Any:
         raise NotImplementedError
 
 
 class RQLModelTransform(BaseRQLModelTransform):
-    def start(self, _: List) -> Dict[str, Any]:
+    def start(self, _: list) -> dict[str, Any]:
         rql_object = {
             "fields": self.__selected_fields__,
             "sort": self.__sorting_fields__,

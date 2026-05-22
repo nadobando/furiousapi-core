@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional, Tuple
 
 import pytest
 from pydantic import BaseModel
@@ -51,7 +50,7 @@ def test_get_model_fields(recursive: bool, expected: dict):  # noqa: FBT001
     ("name", "expected"),
     [(None, f"{MyModel.__name__}FieldsEnum"), ("ChangedEnumName", "ChangedEnumName")],
 )
-def test_get_model_fields_enum(name: str, expected: Tuple[Optional[str], str]):
+def test_get_model_fields_enum(name: str, expected: tuple[str | None, str]):
     enum = get_model_fields_enum(MyModel, name)
     assert issubclass(enum, Enum)
     assert enum.__name__ == expected

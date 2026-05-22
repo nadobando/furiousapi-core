@@ -1,4 +1,4 @@
-from typing import Any, ClassVar, Generic, Type
+from typing import Any, ClassVar, Generic
 
 import uvicorn
 from fastapi import FastAPI, Query
@@ -15,12 +15,12 @@ class DummyEntity(BaseModel):
 
 
 class MyModelRQL(ModelRQL[DummyEntity]):
-    __model__: Type[TEntity] = DummyEntity
+    __model__: type[TEntity] = DummyEntity
     __transformer__ = RQLModelTransform
 
 
 class RQLStr(str, Generic[TEntity]):
-    __model__: Type[ModelRQL] = MyModelRQL
+    __model__: type[ModelRQL] = MyModelRQL
     __pagination__: ClassVar[str] = "cursor"  # Default
 
     @classmethod

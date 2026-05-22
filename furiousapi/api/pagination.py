@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Callable, Generic, List, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Generic, Literal, Union
 
 from furiousapi.core.types import TEntity
 from furiousapi.pydantic import PYDANTIC_V2
@@ -18,30 +19,30 @@ if TYPE_CHECKING:
 
 
 class PaginatedResponse(GenericModel, Generic[TEntity]):
-    total: Optional[int]
-    items: List[TEntity]
-    index: Optional[int]
-    next: Optional[Union[str, int]] = None
+    total: int | None
+    items: list[TEntity]
+    index: int | None
+    next: str | int | None = None
 
     if PYDANTIC_V2:
 
         def model_dump(
             self,
             *,
-            mode: Union[Literal["json", "python"], str] = "python",  # noqa: PYI051
-            include: Optional[IncEx] = None,
-            exclude: Optional[IncEx] = None,
-            context: Optional[Any] = None,
-            by_alias: Optional[bool] = False,
+            mode: Literal["json", "python"] | str = "python",  # noqa: PYI051
+            include: IncEx | None = None,
+            exclude: IncEx | None = None,
+            context: Any | None = None,
+            by_alias: bool | None = False,
             exclude_unset: bool = False,
             exclude_defaults: bool = False,
             exclude_none: bool = False,
             exclude_computed_fields: bool = False,
             round_trip: bool = False,
-            warnings: Union[Literal["none", "warn", "error"], bool] = False,
-            fallback: Optional[Callable[[Any], Any]] = None,  # noqa: ARG002
+            warnings: Literal["none", "warn", "error"] | bool = False,
+            fallback: Callable[[Any], Any] | None = None,  # noqa: ARG002
             serialize_as_any: bool = False,
-            polymorphic_serialization: Optional[bool] = None,
+            polymorphic_serialization: bool | None = None,
         ) -> dict[str, Any]:
             return super().model_dump(
                 mode=mode,
@@ -64,10 +65,10 @@ class PaginatedResponse(GenericModel, Generic[TEntity]):
         def dict(
             self,
             *,
-            include: Optional[Union[AbstractSetIntStr, MappingIntStrAny]] = None,
-            exclude: Optional[Union[AbstractSetIntStr, MappingIntStrAny]] = None,
+            include: AbstractSetIntStr | MappingIntStrAny | None = None,
+            exclude: AbstractSetIntStr | MappingIntStrAny | None = None,
             by_alias: bool = False,
-            skip_defaults: Optional[bool] = None,
+            skip_defaults: bool | None = None,
             exclude_unset: bool = False,
             exclude_defaults: bool = False,
             exclude_none: bool = True,
@@ -88,4 +89,4 @@ class PaginationStrategyEnum(str, Enum):
     CURSOR = "cursor"
 
 
-PaginationStrategy = Union[PaginationStrategyEnum, Literal["cursor", "offset"]]
+PaginationStrategy = Union[PaginationStrategyEnum, Literal["cursor", "offset"]]  # noqa: UP007

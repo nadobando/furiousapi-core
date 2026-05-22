@@ -1,10 +1,10 @@
 from enum import Enum
-from typing import Literal, Tuple, TypeVar
+from typing import Literal, TypeVar
 
 from pydantic import BaseModel
 
 TEntity = TypeVar("TEntity", bound=BaseModel)
 TModelFields = TypeVar("TModelFields", bound=Enum)
 SortingDirection = Literal["asc", "desc"]
-Sorting = Tuple[str, SortingDirection]
+Sorting = tuple[str, SortingDirection]
 Query = TypeVar("Query")

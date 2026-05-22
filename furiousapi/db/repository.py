@@ -2,21 +2,8 @@ from __future__ import annotations
 
 import copy
 from abc import ABCMeta, abstractmethod
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    ClassVar,
-    Dict,
-    Generic,
-    Iterable,
-    List,
-    Optional,
-    Tuple,
-    Type,
-    TypeVar,
-    Union,
-    cast,
-)
+from collections.abc import Iterable
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, cast
 
 from furiousapi.core.types import TEntity
 
@@ -29,29 +16,29 @@ if TYPE_CHECKING:
 
 
 def inherit_config(
-    self_config: Type[RepositoryConfig], parent_config: Type[RepositoryConfig], **namespace: Any
-) -> Type[RepositoryConfig]:
+    self_config: type[RepositoryConfig], parent_config: type[RepositoryConfig], **namespace: Any
+) -> type[RepositoryConfig]:
     if not self_config:
-        base_classes: Tuple[Type[RepositoryConfig], ...] = (parent_config,)
+        base_classes: tuple[type[RepositoryConfig], ...] = (parent_config,)
     elif self_config == parent_config:
         base_classes = (copy.deepcopy(self_config),)
     else:
         base_classes = self_config, parent_config
 
-    return cast("Type[RepositoryConfig]", type(RepositoryConfig.__name__, base_classes, namespace))
+    return cast("type[RepositoryConfig]", type(RepositoryConfig.__name__, base_classes, namespace))
 
 
 class RepositoryConfig:
-    paginators: ClassVar[Dict[PaginationStrategyEnum, BasePagination]] = {}
+    paginators: ClassVar[dict[PaginationStrategyEnum, BasePagination]] = {}
 
 
 class RepositoryMeta(ABCMeta):
     def __new__(
-        mcs: Type["RepositoryMeta"],
+        mcs: type[RepositoryMeta],
         name: str,
-        bases: Tuple[Union[Type["BaseRepository"], Type]],
+        bases: tuple[type[BaseRepository] | type],
         namespace: dict,
-    ) -> "RepositoryMeta":
+    ) -> RepositoryMeta:
         parents = [b for b in bases if isinstance(b, mcs)]
         if not parents:
             return super().__new__(mcs, name, bases, namespace)
@@ -70,8 +57,8 @@ class RepositoryMeta(ABCMeta):
 class BaseRepository(Generic[TEntity], metaclass=RepositoryMeta):
 
     if TYPE_CHECKING:
-        __model__: Type[TEntity]
-        __paginators__: Dict[PaginationStrategyEnum, BasePagination]
+        __model__: type[TEntity]
+        __paginators__: dict[PaginationStrategyEnum, BasePagination]
 
     def __init__(self):
         if not hasattr(self, "__paginators__"):
@@ -85,17 +72,17 @@ class BaseRepository(Generic[TEntity], metaclass=RepositoryMeta):
     @abstractmethod
     async def get(
         self,
-        identifiers: Union[int, str, Dict[str, Any], tuple],
-        fields: Optional[Iterable["Enum"]] = None,
+        identifiers: int | str | dict[str, Any] | tuple,
+        fields: Iterable[Enum] | None = None,
         *,
         should_error: bool = True,
-    ) -> Optional[TEntity]: ...
+    ) -> TEntity | None: ...
 
     @abstractmethod
     async def add(self, entity: TEntity) -> TEntity: ...
 
     @abstractmethod
-    async def patch(self, id_: Any, partial: TEntity, **kwargs) -> Optional[TEntity]:
+    async def patch(self, id_: Any, partial: TEntity, **kwargs) -> TEntity | None:
         """Partial update: only fields explicitly set in `partial` are written.
 
         Mirrors HTTP PATCH semantics — omitted fields are preserved.
@@ -103,14 +90,14 @@ class BaseRepository(Generic[TEntity], metaclass=RepositoryMeta):
         ...
 
     @abstractmethod
-    async def replace(self, id_: Any, entity: TEntity, **kwargs) -> Optional[TEntity]:
+    async def replace(self, id_: Any, entity: TEntity, **kwargs) -> TEntity | None:
         """Full replacement: all fields are written, including defaults for unset ones.
 
         Mirrors HTTP PUT semantics — the request is the new state of the resource.
         """
         ...
 
-    async def update(self, id_: Any, entity: TEntity, **kwargs) -> Optional[TEntity]:
+    async def update(self, id_: Any, entity: TEntity, **kwargs) -> TEntity | None:
         """Deprecated. Alias of `patch()` — historical PATCH-semantics method.
 
         Use `patch(id_, partial)` for partial updates or `replace(id_, entity)`
@@ -127,19 +114,19 @@ class BaseRepository(Generic[TEntity], metaclass=RepositoryMeta):
         return await self.patch(id_, entity, **kwargs)
 
     @abstractmethod
-    async def delete(self, entity: Union[TEntity, str, int], **kwargs) -> None: ...
+    async def delete(self, entity: TEntity | str | int, **kwargs) -> None: ...
 
     @abstractmethod
-    async def bulk_create(self, bulk: List[TEntity]) -> "BulkResponseModel": ...
+    async def bulk_create(self, bulk: list[TEntity]) -> BulkResponseModel: ...
 
     @abstractmethod
-    async def bulk_delete(self, bulk: List[Union[TEntity, Any]]) -> List: ...
+    async def bulk_delete(self, bulk: list[TEntity | Any]) -> list: ...
 
     @abstractmethod
-    async def bulk_update(self, bulk: List[TEntity]) -> List: ...
+    async def bulk_update(self, bulk: list[TEntity]) -> list: ...
 
     @abstractmethod
-    def query(self, query: Any = None, *args, **kwargs) -> Optional[Query]: ...
+    def query(self, query: Any = None, *args, **kwargs) -> Query | None: ...
 
     @abstractmethod
     async def execute(self, query: Any) -> Any: ...

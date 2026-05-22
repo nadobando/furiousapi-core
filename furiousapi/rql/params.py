@@ -1,10 +1,11 @@
-from typing import Any, Callable, Dict, Generic, List, Optional, Type, TypeVar, Union
+from collections.abc import Callable
+from typing import Annotated, Any, Generic, TypeVar
 
 from fastapi._compat import PYDANTIC_V2, Undefined
 from fastapi.openapi.models import Example
 from fastapi.params import Query, _Unset
 from pydantic import BaseModel
-from typing_extensions import Annotated, deprecated
+from typing_extensions import deprecated
 
 RQLStrModel = TypeVar("RQLStrModel")
 if PYDANTIC_V2:
@@ -16,46 +17,46 @@ if PYDANTIC_V2:
     class RQLQueryStr(Query):  # type: ignore[misc]
         def __init__(
             self,
-            model: Optional[Type[BaseModel]] = None,
+            model: type[BaseModel] | None = None,
             default: Any = Undefined,
             *,
-            default_factory: Union[Callable[[], Any], None] = _Unset,
-            annotation: Optional[Any] = None,
-            alias: Optional[str] = None,
-            alias_priority: Union[int, None] = _Unset,
-            validation_alias: Union[str, AliasPath, AliasChoices, None] = None,
-            serialization_alias: Union[str, None] = None,
-            title: Optional[str] = None,
-            description: Optional[str] = None,
-            gt: Optional[float] = None,
-            ge: Optional[float] = None,
-            lt: Optional[float] = None,
-            le: Optional[float] = None,
-            min_length: Optional[int] = None,
-            max_length: Optional[int] = None,
-            pattern: Optional[str] = None,
+            default_factory: Callable[[], Any] | None = _Unset,
+            annotation: Any | None = None,
+            alias: str | None = None,
+            alias_priority: int | None = _Unset,
+            validation_alias: str | AliasPath | AliasChoices | None = None,
+            serialization_alias: str | None = None,
+            title: str | None = None,
+            description: str | None = None,
+            gt: float | None = None,
+            ge: float | None = None,
+            lt: float | None = None,
+            le: float | None = None,
+            min_length: int | None = None,
+            max_length: int | None = None,
+            pattern: str | None = None,
             regex: Annotated[
-                Optional[str],
+                str | None,
                 deprecated("Deprecated in FastAPI 0.100.0 and Pydantic v2, use `pattern` instead."),
             ] = None,
-            discriminator: Union[str, None] = None,
-            strict: Union[bool, None] = _Unset,
-            multiple_of: Union[float, None] = _Unset,
-            allow_inf_nan: Union[bool, None] = _Unset,
-            max_digits: Union[int, None] = _Unset,
-            decimal_places: Union[int, None] = _Unset,
-            examples: Optional[List[Any]] = None,
+            discriminator: str | None = None,
+            strict: bool | None = _Unset,
+            multiple_of: float | None = _Unset,
+            allow_inf_nan: bool | None = _Unset,
+            max_digits: int | None = _Unset,
+            decimal_places: int | None = _Unset,
+            examples: list[Any] | None = None,
             example: Annotated[
-                Optional[Any],
+                Any | None,
                 deprecated(
                     "Deprecated in OpenAPI 3.1.0 that now uses JSON Schema 2020-12, "
                     "although still supported. Use examples instead."
                 ),
             ] = _Unset,
-            openapi_examples: Optional[Dict[str, Example]] = None,
-            deprecated: Union[deprecated, str, bool, None] = None,
+            openapi_examples: dict[str, Example] | None = None,
+            deprecated: deprecated | str | bool | None = None,
             include_in_schema: bool = True,
-            json_schema_extra: Union[Dict[str, Any], None] = None,
+            json_schema_extra: dict[str, Any] | None = None,
             **extra: Any,
         ):
             self.model = model
@@ -102,46 +103,46 @@ else:
     class RQLQueryStr(Query):  # type: ignore[misc]
         def __init__(
             self,
-            model: Optional[Type[BaseModel]] = None,
+            model: type[BaseModel] | None = None,
             default: Any = Undefined,
             *,
-            default_factory: Union[Callable[[], Any], None] = _Unset,
-            annotation: Optional[Any] = None,
-            alias: Optional[str] = None,
-            alias_priority: Union[int, None] = _Unset,
-            validation_alias: Union[str, None] = None,
-            serialization_alias: Union[str, None] = None,
-            title: Optional[str] = None,
-            description: Optional[str] = None,
-            gt: Optional[float] = None,
-            ge: Optional[float] = None,
-            lt: Optional[float] = None,
-            le: Optional[float] = None,
-            min_length: Optional[int] = None,
-            max_length: Optional[int] = None,
-            pattern: Optional[str] = None,
+            default_factory: Callable[[], Any] | None = _Unset,
+            annotation: Any | None = None,
+            alias: str | None = None,
+            alias_priority: int | None = _Unset,
+            validation_alias: str | None = None,
+            serialization_alias: str | None = None,
+            title: str | None = None,
+            description: str | None = None,
+            gt: float | None = None,
+            ge: float | None = None,
+            lt: float | None = None,
+            le: float | None = None,
+            min_length: int | None = None,
+            max_length: int | None = None,
+            pattern: str | None = None,
             regex: Annotated[
-                Optional[str],
+                str | None,
                 deprecated("Deprecated in FastAPI 0.100.0 and Pydantic v2, use `pattern` instead."),
             ] = None,
-            discriminator: Union[str, None] = None,
-            strict: Union[bool, None] = _Unset,
-            multiple_of: Union[float, None] = _Unset,
-            allow_inf_nan: Union[bool, None] = _Unset,
-            max_digits: Union[int, None] = _Unset,
-            decimal_places: Union[int, None] = _Unset,
-            examples: Optional[List[Any]] = None,
+            discriminator: str | None = None,
+            strict: bool | None = _Unset,
+            multiple_of: float | None = _Unset,
+            allow_inf_nan: bool | None = _Unset,
+            max_digits: int | None = _Unset,
+            decimal_places: int | None = _Unset,
+            examples: list[Any] | None = None,
             example: Annotated[
-                Optional[Any],
+                Any | None,
                 deprecated(
                     "Deprecated in OpenAPI 3.1.0 that now uses JSON Schema 2020-12, "
                     "although still supported. Use examples instead."
                 ),
             ] = _Unset,
-            openapi_examples: Optional[Dict[str, Example]] = None,
-            deprecated: Union[deprecated, str, bool, None] = None,
+            openapi_examples: dict[str, Example] | None = None,
+            deprecated: deprecated | str | bool | None = None,
             include_in_schema: bool = True,
-            json_schema_extra: Union[Dict[str, Any], None] = None,
+            json_schema_extra: dict[str, Any] | None = None,
             **extra: Any,
         ):
             self.model = model
