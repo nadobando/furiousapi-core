@@ -71,14 +71,8 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = ["furiousapi"]
 
-[tool.autopep8]
-aggressive = 3
-in-place = true
-max_line_length = 120
-recursive = true
-
 [tool.bandit.assert_used]
-skips = ['**/test_*.py', '**/test_*.py']
+skips = ['**/test_*.py']
 
 [tool.black]
 exclude = """
@@ -114,9 +108,6 @@ branch = true
 source = [
     "*/furiousapi/*"
 ]
-
-[tool.isort]
-profile = "black"
 
 [tool.mypy]
 python_version = "3.10"

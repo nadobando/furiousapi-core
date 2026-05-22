@@ -7,31 +7,12 @@ repos:
 #        args:
 #          - --keep-runtime-typing
 
-  - repo: https://github.com/pre-commit/mirrors-isort
-    rev: v5.10.1
-    hooks:
-      - id: isort
-
-
   - repo: https://github.com/psf/black
     rev: 25.1.0
     hooks:
       - id: black
         args:
           - --config=pyproject.toml
-
-  - repo: https://github.com/myint/autoflake
-    rev: v2.3.1
-    hooks:
-      - id: autoflake
-        exclude: .*/__init__.py
-        args:
-          - --in-place
-          - --remove-all-unused-imports
-          - --expand-star-imports
-          - --remove-duplicate-keys
-          - --remove-unused-variables
-
 
   - repo: https://github.com/pre-commit/pygrep-hooks
     rev: v1.10.0
@@ -85,7 +66,9 @@ repos:
       - id: no-commit-to-branch
         args:
           - --branch
-          - master
+          - main
+          - --branch
+          - dev
 
 
 #  - repo: https://github.com/macisamuele/language-formatters-pre-commit-hooks
