@@ -13,7 +13,7 @@
 from __future__ import annotations
 
 from abc import ABCMeta
-from typing import TYPE_CHECKING, Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, TypeVar, get_args, get_origin
 
 from pydantic import BaseModel
 
@@ -41,17 +41,45 @@ if TYPE_CHECKING:
 TEntity = TypeVar("TEntity", bound=BaseModel)
 
 
-def _extract_model(bases: tuple[type, ...], namespace: dict[str, Any]) -> type | None:
-    if not any(isinstance(b, ServiceMeta) for b in bases):
+def _extract_model(namespace: dict[str, Any]) -> type | None:
+    """Resolve the entity model for a service class (design: hybrid).
+
+    1. An explicit ``__model__`` in the class body always wins.
+    2. Otherwise scan **all** of ``__orig_bases__`` (not just the first — a
+       service may list mixins before ``ModelService[X]``) for a parametrized
+       ``ModelService`` base and lift its concrete argument.
+
+    Returns ``None`` when no concrete model can be determined — e.g. the class is
+    still generic (the arg is a ``TypeVar``) or the arg is a forward ref / string
+    (not a real ``type``). Callers decide whether that ``None`` is an error
+    (see :func:`_requires_model`).
+    """
+    explicit = namespace.get("__model__")
+    if explicit is not None:
+        return explicit
+    model_base = globals().get("ModelService")
+    if model_base is None:  # bootstrap: ModelService not defined yet
         return None
-    orig_bases = namespace.get("__orig_bases__")
-    if not orig_bases:
-        return None
-    args = getattr(orig_bases[0], "__args__", None)
-    if not args:
-        return None
-    model = args[0]
-    return None if isinstance(model, TypeVar) else model
+    for orig in namespace.get("__orig_bases__", ()):
+        origin = get_origin(orig)
+        if isinstance(origin, type) and issubclass(origin, model_base):
+            args = get_args(orig)
+            # A real class (not a TypeVar — still generic — nor a forward ref).
+            if args and isinstance(args[0], type):
+                return args[0]
+    return None
+
+
+def _requires_model(cls: type) -> bool:
+    """True if ``cls`` is a *concrete* ``ModelService`` subclass that must have
+    resolved a model. Abstract roots, ``ModelService`` itself, and still-generic
+    services (with free type parameters) are exempt."""
+    model_base = globals().get("ModelService")
+    if model_base is None or cls is model_base or not issubclass(cls, model_base):
+        return False
+    if getattr(cls, "__model__", None) is not None:
+        return False  # resolved its own, or inherited a parent's model
+    return not getattr(cls, "__parameters__", ())  # free TypeVars ⇒ still generic
 
 
 class ServiceMeta(ABCMeta):
@@ -77,13 +105,19 @@ class ServiceMeta(ABCMeta):
         namespace: dict[str, Any],
         **kwargs: Any,
     ):
-        model = _extract_model(bases, namespace)
+        model = _extract_model(namespace)
         if model is not None:
             namespace = {"__model__": model, **namespace}
         cls = super().__new__(mcs, name, bases, namespace, **kwargs)
         if model is not None:
             # Per-service event identity: rebind Created → Created[Order] etc.
             rebind_events(cls, model)
+        elif _requires_model(cls):
+            raise TypeError(
+                f"{name} is a concrete ModelService subclass but its entity model could "
+                f"not be determined. Parametrize it (class {name}(ModelService[YourEntity])) "
+                f"or set `__model__ = YourEntity` explicitly in the class body."
+            )
         cls._event_handlers = collect_handlers(bases, namespace)
         install_wrappers(cls)
         return cls

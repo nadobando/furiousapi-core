@@ -667,3 +667,58 @@ async def test_shared_generic_base_wildcard_fires_per_subclass_identity():
     await OrderAudited(repository=FakeRepo()).add(Order(id=1))  # type: ignore[arg-type]
     await ProductAudited(repository=FakeRepo()).add(Product(sku="s"))  # type: ignore[arg-type]
     assert seen == ["Created[Order]", "Created[Product]"]
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Model resolution (hybrid): explicit __model__ wins; else scan all bases;
+# else a concrete ModelService subclass raises at class creation.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+class Marker:
+    """A plain (non-service) base to force ModelService[X] out of position 0."""
+
+
+async def test_model_resolved_when_modelservice_not_first_base():
+    """ModelService[Order] listed after another base still resolves Order — events
+    fire with the parametrized identity (the fix for scanning all __orig_bases__,
+    not just the first)."""
+    seen: list[str] = []
+
+    class MixedOrderService(Marker, ModelService[Order]):
+        @Created.after
+        async def on_created(self, event: Created[Order], _result: object) -> None:
+            seen.append(type(event).__name__)
+
+    await MixedOrderService(repository=FakeRepo()).add(Order(id=1))  # type: ignore[arg-type]
+    assert seen == ["Created[Order]"]  # would be "Created" if the model wasn't resolved
+
+
+def test_explicit_model_rescues_unresolvable_magic():
+    """A forward-ref parametrization the magic can't resolve is rescued by an
+    explicit __model__ — events end up parametrized to it."""
+
+    class FwdService(ModelService["Order"]):  # noqa: F821  (forward ref on purpose)
+        __model__ = Order
+
+    svc = FwdService(repository=FakeRepo())  # type: ignore[arg-type]
+    assert svc.events.Created.__name__ == "Created[Order]"  # instance access (class access trips [misc])
+
+
+def test_unresolvable_concrete_service_raises():
+    """A concrete ModelService subclass whose model can't be determined (forward
+    ref, no explicit __model__) fails loudly at class creation."""
+    with pytest.raises(TypeError, match="entity model could not be determined"):
+
+        class BrokenService(ModelService["Order"]):  # noqa: F821  (forward ref on purpose)
+            pass
+
+
+def test_generic_base_does_not_require_model():
+    """A still-generic service (free TypeVar) is exempt from the model check —
+    defining it must not raise."""
+
+    class StillGeneric(ModelService[TEnt]):  # no concrete model — must NOT raise
+        pass
+
+    assert issubclass(StillGeneric, ModelService)
