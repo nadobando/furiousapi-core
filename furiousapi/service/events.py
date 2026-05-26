@@ -27,29 +27,93 @@ from __future__ import annotations
 
 import functools
 import inspect
-from collections.abc import Callable
+import logging
+import warnings
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, Protocol, TypeVar, cast, overload
 
+# `ExceptionGroup` is the `on_hook_error` payload (annotated here, constructed by
+# `_run_on_hook_error`). The `exceptiongroup` package re-exports the builtin on
+# 3.11+ and provides the backport on 3.10, so this import is correct everywhere.
+from exceptiongroup import ExceptionGroup
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic._internal._model_construction import ModelMetaclass
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 F = TypeVar("F", bound=Callable[..., Any])
 
 
-class HandlerDecorator(Protocol):
-    """The callable returned by ``Event.before`` / ``.after`` / ``.on_error``.
+class MultipleHookErrorSinksWarning(UserWarning):
+    """A class body declares >1 ``on_hook_error`` sink for the same event.
 
-    Overloaded so both forms type-check::
-
-        @Created.after                          # bare: (handler) -> handler
-        @Created.after(abort=True, priority=10) # parametric: (...) -> (handler) -> handler
+    The sink is singular (unlike ``before``/``after``/``on_error``, which stack).
+    Inherited sinks are fine — that's how a service layers on top of the
+    framework; this warns only about duplicates written in one class body.
     """
 
+
+# ──────────────────────────────────────────────────────────────────────────
+# Per-phase handler Protocols. Params are positional-only — the framework calls
+# handlers positionally, so names need not match. Handlers return ``None`` (they
+# observe/validate; they don't produce a value). These constrain the *shape* of
+# the decorated function; mypy enforces arity + the known 2nd-arg type. The
+# event entity type and ``after``'s result type stay ``Any`` from the decorator
+# side (the developer annotates ``event: Created[Order]`` / ``result: Order``).
+# ──────────────────────────────────────────────────────────────────────────
+class BeforeHandler(Protocol):
+    def __call__(self, _s: Any, event: Any, /) -> Awaitable[None]: ...
+
+
+class AfterHandler(Protocol):
+    def __call__(self, _s: Any, event: Any, result: Any, /) -> Awaitable[None]: ...
+
+
+class OnErrorHandler(Protocol):
+    def __call__(self, _s: Any, event: Any, exc: Exception, /) -> Awaitable[None]: ...
+
+
+class OnHookErrorHandler(Protocol):
+    def __call__(self, _s: Any, event: Any, errors: ExceptionGroup, /) -> Awaitable[None]: ...
+
+
+# Per-phase decorator Protocols: what ``Event.before`` / ``.after`` / ... return.
+# Each is overloaded for both call forms and constrains the handler to its phase::
+#
+#     @Created.after                          # bare:       (handler) -> handler
+#     @Created.after(abort=True, priority=10) # parametric: (...) -> (handler) -> handler
+_BeforeH = TypeVar("_BeforeH", bound=BeforeHandler)
+_AfterH = TypeVar("_AfterH", bound=AfterHandler)
+_OnErrorH = TypeVar("_OnErrorH", bound=OnErrorHandler)
+_OnHookErrorH = TypeVar("_OnHookErrorH", bound=OnHookErrorHandler)
+
+
+class BeforeDecorator(Protocol):
     @overload
-    def __call__(self, handler: F, /) -> F: ...
+    def __call__(self, handler: _BeforeH, /) -> _BeforeH: ...
     @overload
-    def __call__(self, *, abort: bool = ..., priority: int = ...) -> Callable[[F], F]: ...
+    def __call__(self, *, abort: bool = ..., priority: int = ...) -> Callable[[_BeforeH], _BeforeH]: ...
+
+
+class AfterDecorator(Protocol):
+    @overload
+    def __call__(self, handler: _AfterH, /) -> _AfterH: ...
+    @overload
+    def __call__(self, *, abort: bool = ..., priority: int = ...) -> Callable[[_AfterH], _AfterH]: ...
+
+
+class OnErrorDecorator(Protocol):
+    @overload
+    def __call__(self, handler: _OnErrorH, /) -> _OnErrorH: ...
+    @overload
+    def __call__(self, *, abort: bool = ..., priority: int = ...) -> Callable[[_OnErrorH], _OnErrorH]: ...
+
+
+class OnHookErrorDecorator(Protocol):
+    # Bare-only — no `abort` (a singular sink has no chain to stop) and no
+    # `priority` (nothing to order). See `MultipleHookErrorSinksWarning`.
+    def __call__(self, handler: _OnHookErrorH, /) -> _OnHookErrorH: ...
 
 
 class EmitterDecorator(Protocol):
@@ -107,7 +171,7 @@ def _tag_handler(handler: F, spec: HandlerSpec) -> F:
     return handler
 
 
-def _make_handler_decorator(event_cls: type[BaseEvent], phase: str, *, default_abort: bool) -> HandlerDecorator:
+def _make_handler_decorator(event_cls: type[BaseEvent], phase: str, *, default_abort: bool) -> Callable[..., Any]:
     """Build the decorator returned by ``Event.before`` / ``.after`` / ``.on_error``.
 
     Supports both forms::
@@ -194,22 +258,37 @@ class EventMeta(ModelMetaclass):
         return deco
 
     @property
-    def before(cls) -> HandlerDecorator:  # noqa: N805  (cls is correct for a metaclass)
+    def before(cls) -> BeforeDecorator:  # noqa: N805  (cls is correct for a metaclass)
         """Register a handler that runs before the wrapped method. Default
-        ``abort=True`` (a raising before-handler aborts the operation)."""
-        return _make_handler_decorator(cast("type[BaseEvent]", cls), "before", default_abort=True)
+        ``abort=True`` — a raising before-handler aborts before method execution
+        (the method is skipped)."""
+        deco = _make_handler_decorator(cast("type[BaseEvent]", cls), "before", default_abort=True)
+        return cast("BeforeDecorator", deco)
 
     @property
-    def after(cls) -> HandlerDecorator:  # noqa: N805  (cls is correct for a metaclass)
+    def after(cls) -> AfterDecorator:  # noqa: N805  (cls is correct for a metaclass)
         """Register a handler that runs after the method succeeds. Default
-        ``abort=False`` (a raising after-handler is collected, not fatal)."""
-        return _make_handler_decorator(cast("type[BaseEvent]", cls), "after", default_abort=False)
+        ``abort=False`` — a raising after-handler is observed, never propagated
+        (``abort=True`` only stops the remaining after-handlers)."""
+        deco = _make_handler_decorator(cast("type[BaseEvent]", cls), "after", default_abort=False)
+        return cast("AfterDecorator", deco)
 
     @property
-    def on_error(cls) -> HandlerDecorator:  # noqa: N805  (cls is correct for a metaclass)
-        """Register a handler that runs if the method raised. Default
-        ``abort=False``."""
-        return _make_handler_decorator(cast("type[BaseEvent]", cls), "on_error", default_abort=False)
+    def on_error(cls) -> OnErrorDecorator:  # noqa: N805  (cls is correct for a metaclass)
+        """Register an OBSERVER that runs if the method raised. The method's
+        exception always propagates bare regardless; ``abort=True`` only stops
+        the remaining on_error handlers."""
+        deco = _make_handler_decorator(cast("type[BaseEvent]", cls), "on_error", default_abort=False)
+        return cast("OnErrorDecorator", deco)
+
+    @property
+    def on_hook_error(cls) -> OnHookErrorDecorator:  # noqa: N805  (cls is correct for a metaclass)
+        """Register the terminal OBSERVER sink. Receives all collected
+        before/after/on_error handler failures as one ``ExceptionGroup``.
+        Observe-only — cannot change the caller's outcome; if it raises, that is
+        logged and not re-dispatched (recursion guard). See design.md §6."""
+        deco = _make_handler_decorator(cast("type[BaseEvent]", cls), "on_hook_error", default_abort=False)
+        return cast("OnHookErrorDecorator", deco)
 
 
 def _resolve_wraps(wraps: str | tuple[str, ...] | None, bases: tuple[type, ...]) -> tuple[str, ...]:
@@ -239,9 +318,10 @@ class BaseEvent(BaseModel, metaclass=EventMeta):
         # properties; declared here so IDEs (which don't reliably resolve
         # metaclass properties as class attributes) see `SomeEvent.after` etc.
         emitted_by: ClassVar[EmitterDecorator]
-        before: ClassVar[HandlerDecorator]
-        after: ClassVar[HandlerDecorator]
-        on_error: ClassVar[HandlerDecorator]
+        before: ClassVar[BeforeDecorator]
+        after: ClassVar[AfterDecorator]
+        on_error: ClassVar[OnErrorDecorator]
+        on_hook_error: ClassVar[OnHookErrorDecorator]
 
     model_config = ConfigDict(frozen=True)
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -323,6 +403,7 @@ def collect_handlers(bases: tuple[type, ...], namespace: dict[str, Any]) -> dict
                 next_index = max(next_index, entry.index + 1)
 
     # Own handlers, in class-body definition order.
+    own_sinks: dict[type, list[str]] = {}  # event_cls -> on_hook_error methods in THIS body
     for method_name, value in namespace.items():
         specs = getattr(value, HANDLERS_ATTR, None)
         if not specs:
@@ -331,8 +412,31 @@ def collect_handlers(bases: tuple[type, ...], namespace: dict[str, Any]) -> dict
             key = (spec.event_cls, spec.phase)
             registry.setdefault(key, []).append(RegistryEntry(method_name, spec, next_index))
             next_index += 1
+            if spec.phase == "on_hook_error":
+                own_sinks.setdefault(spec.event_cls, []).append(method_name)
 
+    _warn_on_duplicate_sinks(own_sinks, namespace)
     return registry
+
+
+def _warn_on_duplicate_sinks(own_sinks: dict[type, list[str]], namespace: dict[str, Any]) -> None:
+    """Warn if a class body declares >1 ``on_hook_error`` sink for one event.
+
+    The sink is singular per event; stacking it is almost always a
+    misunderstanding (it doesn't compose like the other hooks). Inherited sinks
+    are intentional layering and are deliberately not counted (own body only).
+    """
+    cls_name = namespace.get("__qualname__", namespace.get("__name__", "<service>"))
+    for event_cls, methods in own_sinks.items():
+        if len(methods) > 1:
+            warnings.warn(
+                f"{cls_name} declares {len(methods)} on_hook_error sinks for "
+                f"{event_cls.__name__} ({', '.join(methods)}) — they all fire for one "
+                f"dispatch. on_hook_error is a single sink (unlike before/after/on_error); "
+                f"consolidate into one.",
+                MultipleHookErrorSinksWarning,
+                stacklevel=2,
+            )
 
 
 def _build_event(
@@ -352,37 +456,69 @@ def _build_event(
     return event_cls(**{k: v for k, v in arguments.items() if k in fields})
 
 
-async def _fire(
+def _sorted_entries(instance: Any, event_cls: type[BaseEvent], phase: str) -> list[RegistryEntry]:
+    """Handlers for ``(event_cls, phase)``, gathered across the event's MRO (so
+    ``@Created.after`` / wildcard ``@BaseEvent.after`` fire for ``Created[Order]``)
+    and sorted by ``(priority, registration_index)`` — lower priority first."""
+    registry = type(instance)._event_handlers  # noqa: SLF001  (framework-internal registry)
+    entries: list[RegistryEntry] = []
+    for ancestor in event_cls.__mro__:
+        entries.extend(registry.get((ancestor, phase), ()))
+    entries.sort(key=lambda e: (e.spec.priority, e.index))
+    return entries
+
+
+async def _run_phase(
     instance: Any,
     event_cls: type[BaseEvent],
     phase: str,
     event: BaseEvent,
     extra: Any = None,
     *,
-    has_extra: bool = False,
-) -> None:
-    """Run handlers for ``event_cls`` in ``phase``.
-
-    Walks ``event_cls.__mro__`` so a handler registered against a base event
-    (e.g. ``@Created.after``, or wildcard ``@BaseEvent.after``) fires for a
-    more-specific event (e.g. the per-service ``Created[Order]``). Collected
-    handlers run sorted by ``(priority, registration_index)`` — lower priority
-    first.
-
-    4c-iii (not yet): abort flag + ExceptionGroup. For now the first handler
-    to raise propagates.
-    """
-    registry = type(instance)._event_handlers  # noqa: SLF001  (framework-internal registry)
-    entries: list[RegistryEntry] = []
-    for ancestor in event_cls.__mro__:
-        entries.extend(registry.get((ancestor, phase), ()))
-    entries.sort(key=lambda e: (e.spec.priority, e.index))
-    for entry in entries:
+    has_extra: bool,
+    collected: list[Exception],
+) -> Exception | None:
+    """Run all handlers for ``phase`` in order, appending any failure to the
+    shared ``collected`` bucket. Stops at the first ``abort=True`` failure and
+    returns it — the caller decides what that means (for ``before``: abort before
+    method execution, i.e. skip the method). ``after``/``on_error`` ignore the
+    return; their ``abort`` just stops the chain. See design.md §6."""
+    aborting: Exception | None = None
+    for entry in _sorted_entries(instance, event_cls, phase):
         handler = getattr(instance, entry.method_name)
-        if has_extra:
-            await handler(event, extra)
-        else:
-            await handler(event)
+        try:
+            if has_extra:
+                await handler(event, extra)
+            else:
+                await handler(event)
+        except Exception as exc:  # noqa: BLE001  (collected, surfaced via abort / on_hook_error)
+            collected.append(exc)
+            if entry.spec.abort:
+                aborting = exc
+                break
+    return aborting
+
+
+async def _run_on_hook_error(
+    instance: Any, event_cls: type[BaseEvent], event: BaseEvent, collected: list[Exception]
+) -> None:
+    """Terminal observer sink. No-op on an empty bucket; otherwise hands every
+    collected handler failure to the ``on_hook_error`` sink(s) as one
+    ``ExceptionGroup``. Observe-only and recursion-guarded: a sink that raises is
+    logged and NOT re-dispatched, and never changes the caller's outcome."""
+    if not collected:
+        return
+    group = ExceptionGroup("handler failures during event dispatch", collected)
+    for entry in _sorted_entries(instance, event_cls, "on_hook_error"):
+        handler = getattr(instance, entry.method_name)
+        try:
+            await handler(event, group)
+        except Exception:  # noqa: BLE001  (observe-only: log, never re-dispatch to on_hook_error)
+            logger.exception(
+                "on_hook_error sink %s.%s raised; suppressed (recursion guard)",
+                type(instance).__name__,
+                entry.method_name,
+            )
 
 
 def _resolve_event(instance: Any, captured: type[BaseEvent]) -> type[BaseEvent]:
@@ -403,20 +539,37 @@ def _resolve_event(instance: Any, captured: type[BaseEvent]) -> type[BaseEvent]:
 
 
 def _make_wrapper(method: Callable[..., Any], event_cls: type[BaseEvent]) -> Callable[..., Any]:
-    """Wrap a CRUD/custom method so it fires the event lifecycle around its body."""
+    """Wrap a CRUD/custom method with the event lifecycle (design.md §6/§9).
+
+    Caller path is always **bare**: only a ``before`` ``abort=True`` failure or
+    the method's own exception ever reaches the caller — never an
+    ``ExceptionGroup``. All handler failures funnel to ``on_hook_error``.
+    """
     signature = inspect.signature(method)
 
     @functools.wraps(method)
     async def wrapped(self: Any, *args: Any, **kwargs: Any) -> Any:
         resolved = _resolve_event(self, event_cls)
         event = _build_event(resolved, signature, self, args, kwargs)
-        await _fire(self, resolved, "before", event)
+        collected: list[Exception] = []
+
+        # BEFORE — abort=True ⇒ skip the method, propagate bare.
+        aborted = await _run_phase(self, resolved, "before", event, has_extra=False, collected=collected)
+        if aborted is not None:
+            await _run_on_hook_error(self, resolved, event, collected)
+            raise aborted
+
+        # METHOD — sacred: its own exception always propagates bare, never grouped.
         try:
             result = await method(self, *args, **kwargs)
-        except Exception as exc:
-            await _fire(self, resolved, "on_error", event, exc, has_extra=True)
+        except Exception as method_exc:
+            await _run_phase(self, resolved, "on_error", event, method_exc, has_extra=True, collected=collected)
+            await _run_on_hook_error(self, resolved, event, collected)
             raise
-        await _fire(self, resolved, "after", event, result, has_extra=True)
+
+        # AFTER — abort=True ⇒ stop the rest; after failures never propagate.
+        await _run_phase(self, resolved, "after", event, result, has_extra=True, collected=collected)
+        await _run_on_hook_error(self, resolved, event, collected)
         return result
 
     setattr(wrapped, WRAPPED_ATTR, True)

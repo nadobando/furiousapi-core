@@ -15,6 +15,7 @@ from furiousapi.service.events import (
     EventMeta,
     EventsDict,
     ModelEventsDict,
+    MultipleHookErrorSinksWarning,
     Updated,
 )
 
@@ -27,6 +28,7 @@ __all__ = [
     "EventsDict",
     "ModelEventsDict",
     "ModelService",
+    "MultipleHookErrorSinksWarning",
     "ServiceMeta",
     "Updated",
 ]
