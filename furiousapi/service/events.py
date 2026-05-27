@@ -379,54 +379,50 @@ class RegistryEntry:
         return f"RegistryEntry({self.method_name!r}, {self.spec!r}, index={self.index})"
 
 
-def collect_handlers(bases: tuple[type, ...], namespace: dict[str, Any]) -> dict[tuple[type, str], list[RegistryEntry]]:
-    """Build the handler registry for a class: inherit parent registries, then
-    append handlers tagged on this class's own methods.
+def _is_contributor(klass: type, cls: type) -> bool:
+    """Whether ``klass`` contributes handlers/events to ``cls`` — the class being
+    built, a service class (carries its own ``_event_handlers``), or a mixin
+    (a ``BaseServiceMixin`` subclass, flagged ``__furious_service__mixin__``).
+    Plain bases like ``object``/``Generic`` are skipped. Duck-typed to avoid a
+    base.py import."""
+    return klass is cls or getattr(klass, "__furious_service__mixin__", False) or "_event_handlers" in vars(klass)
 
-    Entries are NOT sorted here — sorting by (priority, index) happens at
-    dispatch time (so wildcard MRO collection and subclass priority overrides
-    compose correctly).
+
+def collect_handlers(cls: type) -> dict[tuple[type, str], list[RegistryEntry]]:
+    """Build the handler registry by walking ``cls.__mro__`` and scanning each
+    contributor's own namespace for tagged handlers.
+
+    Walking the MRO (base → derived) means mixin chains and diamonds collect
+    without double-counting — each class appears exactly once. Entries are NOT
+    sorted here; sorting by (priority, index) happens at dispatch time.
 
     Registry shape: ``{(event_cls, phase): [RegistryEntry, ...]}``.
     """
     registry: dict[tuple[type, str], list[RegistryEntry]] = {}
-    next_index = 0
+    own_sinks: dict[type, list[str]] = {}  # event_cls -> on_hook_error methods in cls's OWN body
+    index = 0
 
-    # Inherit parent registries (left-to-right = MRO declaration order).
-    for base in bases:
-        parent = getattr(base, "_event_handlers", None)
-        if not parent:
+    for klass in reversed(cls.__mro__):  # base → derived: ties break with ancestors first
+        if not _is_contributor(klass, cls):
             continue
-        for key, entries in parent.items():
-            registry.setdefault(key, []).extend(entries)
-            for entry in entries:
-                next_index = max(next_index, entry.index + 1)
+        for method_name, value in vars(klass).items():
+            for spec in getattr(value, HANDLERS_ATTR, ()):
+                registry.setdefault((spec.event_cls, spec.phase), []).append(RegistryEntry(method_name, spec, index))
+                index += 1
+                if spec.phase == "on_hook_error" and klass is cls:
+                    own_sinks.setdefault(spec.event_cls, []).append(method_name)
 
-    # Own handlers, in class-body definition order.
-    own_sinks: dict[type, list[str]] = {}  # event_cls -> on_hook_error methods in THIS body
-    for method_name, value in namespace.items():
-        specs = getattr(value, HANDLERS_ATTR, None)
-        if not specs:
-            continue
-        for spec in specs:
-            key = (spec.event_cls, spec.phase)
-            registry.setdefault(key, []).append(RegistryEntry(method_name, spec, next_index))
-            next_index += 1
-            if spec.phase == "on_hook_error":
-                own_sinks.setdefault(spec.event_cls, []).append(method_name)
-
-    _warn_on_duplicate_sinks(own_sinks, namespace)
+    _warn_on_duplicate_sinks(own_sinks, cls.__qualname__)
     return registry
 
 
-def _warn_on_duplicate_sinks(own_sinks: dict[type, list[str]], namespace: dict[str, Any]) -> None:
+def _warn_on_duplicate_sinks(own_sinks: dict[type, list[str]], cls_name: str) -> None:
     """Warn if a class body declares >1 ``on_hook_error`` sink for one event.
 
     The sink is singular per event; stacking it is almost always a
     misunderstanding (it doesn't compose like the other hooks). Inherited sinks
     are intentional layering and are deliberately not counted (own body only).
     """
-    cls_name = namespace.get("__qualname__", namespace.get("__name__", "<service>"))
     for event_cls, methods in own_sinks.items():
         if len(methods) > 1:
             warnings.warn(
@@ -576,26 +572,45 @@ def _make_wrapper(method: Callable[..., Any], event_cls: type[BaseEvent]) -> Cal
     return wrapped
 
 
-def rebind_events(cls: type, model: type) -> None:
-    """Parametrize the class's events with its concrete entity model.
+def collect_events(cls: type) -> EventsDict:
+    """Merge the ``events`` declared across ``cls.__mro__`` into one namespace.
 
-    Turns the shared base events (``Created``, ``Updated``, ...) into
-    per-service parametrized versions (``Created[Order]``, ...), giving each
-    service distinct event identity + a runtime-bound ``entity`` field. Only
-    parametrizes events that are still unbound generics; leaves others as-is.
-    Installs a fresh events namespace on ``cls`` so the parent's stays shared.
+    Walks base → derived and unions each contributing class's *own* ``events``
+    (read from its ``__dict__``, so inherited copies aren't double-counted); a
+    derived class's entry wins on a name collision. This is what lets an
+    intermediate/leaf service — or a mixin — *add* events rather than shadow the
+    ones it inherited.
     """
-    events = getattr(cls, "events", None)
-    if not isinstance(events, EventsDict):
-        return
-    rebound = type(events)()
+    merged: EventsDict = EventsDict()
+    for klass in reversed(cls.__mro__):
+        if not _is_contributor(klass, cls):
+            continue
+        own = vars(klass).get("events")
+        if isinstance(own, EventsDict):
+            merged.update(own)
+    return merged
+
+
+def _parametrize_events(events: EventsDict, model: type) -> EventsDict:
+    """Turn still-generic events (``Created``) into per-service bound versions
+    (``Created[Order]``); leave already-bound / non-generic events as-is."""
+    rebound: EventsDict = EventsDict()
     for name, event_cls in events.items():
         meta = getattr(event_cls, "__pydantic_generic_metadata__", None)
-        if meta and meta.get("parameters"):
-            rebound[name] = event_cls[model]
-        else:
-            rebound[name] = event_cls
-    setattr(cls, "events", rebound)  # noqa: B010  (cls.events not statically known on `type`)
+        rebound[name] = event_cls[model] if meta and meta.get("parameters") else event_cls
+    return rebound
+
+
+def install_events(cls: type, model: type | None) -> None:
+    """Merge the events contributed across the MRO and (when the entity model is
+    known) parametrize them, installing the result as ``cls.events``. Runs for
+    every service so mixins / feature bases / leaf services all compose."""
+    merged = collect_events(cls)
+    if not merged:
+        return
+    if model is not None:
+        merged = _parametrize_events(merged, model)
+    setattr(cls, "events", merged)  # noqa: B010  (cls.events not statically known on `type`)
 
 
 # ──────────────────────────────────────────────────────────────────────────

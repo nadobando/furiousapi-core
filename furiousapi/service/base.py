@@ -24,8 +24,8 @@ from furiousapi.service.events import (
     RegistryEntry,
     Updated,
     collect_handlers,
+    install_events,
     install_wrappers,
-    rebind_events,
 )
 
 if TYPE_CHECKING:
@@ -109,22 +109,36 @@ class ServiceMeta(ABCMeta):
         if model is not None:
             namespace = {"__model__": model, **namespace}
         cls = super().__new__(mcs, name, bases, namespace, **kwargs)
-        if model is not None:
-            # Per-service event identity: rebind Created → Created[Order] etc.
-            rebind_events(cls, model)
-        elif _requires_model(cls):
+        if model is None and _requires_model(cls):
             raise TypeError(
                 f"{name} is a concrete ModelService subclass but its entity model could "
                 f"not be determined. Parametrize it (class {name}(ModelService[YourEntity])) "
                 f"or set `__model__ = YourEntity` explicitly in the class body."
             )
-        cls._event_handlers = collect_handlers(bases, namespace)
+        # Merge events across the MRO (services + mixins) and, when the model is
+        # known, rebind to per-service identity (Created → Created[Order]).
+        install_events(cls, model)
+        cls._event_handlers = collect_handlers(cls)
         install_wrappers(cls)
         return cls
 
 
 class BaseService(metaclass=ServiceMeta):
     """Abstract root of the service hierarchy."""
+
+
+class BaseServiceMixin:
+    """Marker base for service mixins.
+
+    A **plain class** — it carries none of ``ServiceMeta``'s machinery (no model
+    extraction, no event rebinding, no wrapper install). A mixin only
+    *contributes* handlers (and optionally an ``events`` namespace) to the
+    service that mixes it in; it is never instantiated as a service itself.
+    ``ServiceMeta`` recognises it by the ``__furious_service__mixin__`` flag when
+    walking the MRO to collect handlers and events.
+    """
+
+    __furious_service__mixin__ = True
 
 
 class ModelService(BaseService, Generic[TEntity]):

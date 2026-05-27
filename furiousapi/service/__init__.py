@@ -7,7 +7,7 @@ service entity. ``BaseEvent`` is the pydantic event base; subclass with
 ``wraps=`` (or decorate a method with ``@SomeEvent``) to bind an event.
 """
 
-from furiousapi.service.base import BaseService, ModelService, ServiceMeta
+from furiousapi.service.base import BaseService, BaseServiceMixin, ModelService, ServiceMeta
 from furiousapi.service.events import (
     BaseEvent,
     Created,
@@ -22,6 +22,7 @@ from furiousapi.service.events import (
 __all__ = [
     "BaseEvent",
     "BaseService",
+    "BaseServiceMixin",
     "Created",
     "Deleted",
     "EventMeta",

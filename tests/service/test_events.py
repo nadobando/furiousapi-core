@@ -12,7 +12,7 @@ positionally, so the name doesn't matter for dispatch — the prefix just signal
 from __future__ import annotations
 
 import warnings
-from typing import Any, TypeVar
+from typing import Any, Generic, TypeVar
 
 import pytest
 from exceptiongroup import ExceptionGroup
@@ -20,8 +20,10 @@ from pydantic import BaseModel, ValidationError
 
 from furiousapi.service import (
     BaseEvent,
+    BaseServiceMixin,
     Created,
     Deleted,
+    ModelEventsDict,
     ModelService,
     MultipleHookErrorSinksWarning,
     Updated,
@@ -722,3 +724,89 @@ def test_generic_base_does_not_require_model():
         pass
 
     assert issubclass(StillGeneric, ModelService)
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Mixins (BaseServiceMixin): plain marker classes that contribute handlers and events
+# to the service that mixes them in, with no ServiceMeta machinery of their own.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+class Audited(BaseEvent, Generic[TEnt]):
+    entity: TEnt
+
+
+class AuditEventsDict(ModelEventsDict[TEnt], Generic[TEnt]):
+    Audited: type[Audited[TEnt]]
+
+
+class AuditEventsMixin(BaseServiceMixin, Generic[TEnt]):
+    events: AuditEventsDict[TEnt] = AuditEventsDict(Audited=Audited)
+
+
+async def test_mixin_contributes_handler_and_model_resolves_mixin_first():
+    """A plain BaseServiceMixin's handler is collected, and the model still resolves
+    even though the mixin precedes ModelService in the bases."""
+    seen: list[str] = []
+
+    class AuditMixin(BaseServiceMixin):
+        @BaseEvent.after
+        async def audit(self, event: BaseEvent, _result: object) -> None:
+            seen.append(type(event).__name__)
+
+    class OrderService(AuditMixin, ModelService[Order]):
+        pass
+
+    await OrderService(repository=FakeRepo()).add(Order(id=1))  # type: ignore[arg-type]
+    assert seen == ["Created[Order]"]  # fired AND parametrized (mixin-first ordering)
+
+
+async def test_plain_non_mixin_base_handlers_not_collected():
+    """A plain base that is NOT a BaseServiceMixin does not contribute handlers
+    (explicit gate)."""
+    seen: list[str] = []
+
+    class NotAMixin:
+        @BaseEvent.after
+        async def stray(self, _event: BaseEvent, _result: object) -> None:
+            seen.append("fired")
+
+    class OrderService(NotAMixin, ModelService[Order]):
+        pass
+
+    await OrderService(repository=FakeRepo()).add(Order(id=1))  # type: ignore[arg-type]
+    assert seen == []  # not a contributor — handler ignored
+
+
+async def test_mixin_chain_collects_all_handlers():
+    """A mixin inheriting another mixin contributes handlers from both levels."""
+    seen: list[str] = []
+
+    class AuditMixin(BaseServiceMixin):
+        @Created.after
+        async def audit(self, _event: Created[Order], _result: object) -> None:
+            seen.append("audit")
+
+    class ExtendedAudit(AuditMixin):
+        @Created.after
+        async def extra(self, _event: Created[Order], _result: object) -> None:
+            seen.append("extra")
+
+    class OrderService(ExtendedAudit, ModelService[Order]):
+        pass
+
+    await OrderService(repository=FakeRepo()).add(Order(id=1))  # type: ignore[arg-type]
+    assert sorted(seen) == ["audit", "extra"]
+
+
+async def test_mixin_declares_events_merged_and_parametrized():
+    """A mixin's declared events merge into the service namespace and rebind to
+    the entity, alongside the framework events. (Escape: the service re-declares
+    `events` with the mixin's dict for full typing.)"""
+
+    class OrderService(AuditEventsMixin[Order], ModelService[Order]):
+        events: AuditEventsDict[Order]
+
+    svc = OrderService(repository=FakeRepo())  # type: ignore[arg-type]
+    assert svc.events.Created.__name__ == "Created[Order]"  # framework event still there
+    assert svc.events.Audited.__name__ == "Audited[Order]"  # mixin event, parametrized
