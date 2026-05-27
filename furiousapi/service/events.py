@@ -29,7 +29,8 @@ import functools
 import inspect
 import logging
 import warnings
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import AsyncExitStack, asynccontextmanager
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, Protocol, TypeVar, cast, overload
 
 # `ExceptionGroup` is the `on_hook_error` payload (annotated here, constructed by
@@ -82,7 +83,7 @@ class OnHookErrorHandler(Protocol):
 # Each is overloaded for both call forms and constrains the handler to its phase::
 #
 #     @Created.after                          # bare:       (handler) -> handler
-#     @Created.after(abort=True, priority=10) # parametric: (...) -> (handler) -> handler
+#     @Created.after(skips=True, priority=10) # parametric: (...) -> (handler) -> handler
 _BeforeH = TypeVar("_BeforeH", bound=BeforeHandler)
 _AfterH = TypeVar("_AfterH", bound=AfterHandler)
 _OnErrorH = TypeVar("_OnErrorH", bound=OnErrorHandler)
@@ -90,30 +91,52 @@ _OnHookErrorH = TypeVar("_OnHookErrorH", bound=OnHookErrorHandler)
 
 
 class BeforeDecorator(Protocol):
+    # `raises=True` (default) → a failing precondition raises (aborts the operation).
     @overload
     def __call__(self, handler: _BeforeH, /) -> _BeforeH: ...
     @overload
-    def __call__(self, *, abort: bool = ..., priority: int = ...) -> Callable[[_BeforeH], _BeforeH]: ...
+    def __call__(self, *, raises: bool = ..., priority: int = ...) -> Callable[[_BeforeH], _BeforeH]: ...
 
 
 class AfterDecorator(Protocol):
+    # `skips=True` → a failing after-handler skips the remaining after-handlers.
     @overload
     def __call__(self, handler: _AfterH, /) -> _AfterH: ...
     @overload
-    def __call__(self, *, abort: bool = ..., priority: int = ...) -> Callable[[_AfterH], _AfterH]: ...
+    def __call__(self, *, skips: bool = ..., priority: int = ...) -> Callable[[_AfterH], _AfterH]: ...
 
 
 class OnErrorDecorator(Protocol):
+    # `skips=True` → a failing on_error handler skips the remaining on_error handlers.
     @overload
     def __call__(self, handler: _OnErrorH, /) -> _OnErrorH: ...
     @overload
-    def __call__(self, *, abort: bool = ..., priority: int = ...) -> Callable[[_OnErrorH], _OnErrorH]: ...
+    def __call__(self, *, skips: bool = ..., priority: int = ...) -> Callable[[_OnErrorH], _OnErrorH]: ...
 
 
 class OnHookErrorDecorator(Protocol):
-    # Bare-only — no `abort` (a singular sink has no chain to stop) and no
+    # Bare-only — no chain flag (a singular sink has no chain to stop) and no
     # `priority` (nothing to order). See `MultipleHookErrorSinksWarning`.
     def __call__(self, handler: _OnHookErrorH, /) -> _OnHookErrorH: ...
+
+
+class ContextManagerHandler(Protocol):
+    # A structural wrapping hook — an async generator whose single ``yield`` is
+    # the method seam. Returns an async iterator, NOT ``None`` (distinguishes it
+    # from the boundary hooks).
+    def __call__(self, _s: Any, event: Any, /) -> AsyncIterator[Any]: ...
+
+
+_CmH = TypeVar("_CmH", bound=ContextManagerHandler)
+
+
+class ContextManagerDecorator(Protocol):
+    # Nests by ``priority`` (lower = outermost); no chain flag (a pre-``yield``
+    # raise always aborts) and no result control — see design.md §12.
+    @overload
+    def __call__(self, handler: _CmH, /) -> _CmH: ...
+    @overload
+    def __call__(self, *, priority: int = ...) -> Callable[[_CmH], _CmH]: ...
 
 
 class EmitterDecorator(Protocol):
@@ -143,23 +166,26 @@ EMITS_ATTR = "__furious_emits__"
 class HandlerSpec:
     """One handler registration: which event, which phase, and how it behaves."""
 
-    __slots__ = ("abort", "event_cls", "phase", "priority")
+    # `breaks` is the single internal mechanism ("a raise stops this chain").
+    # Decorators expose it under phase-appropriate public names: `raises` on
+    # `before`, `skips` on `after`/`on_error`.
+    __slots__ = ("breaks", "event_cls", "phase", "priority")
 
     def __init__(
         self,
         event_cls: type[BaseEvent],
         phase: str,
         *,
-        abort: bool,
+        breaks: bool,
         priority: int,
     ) -> None:
         self.event_cls = event_cls
         self.phase = phase
-        self.abort = abort
+        self.breaks = breaks
         self.priority = priority
 
     def __repr__(self) -> str:
-        return f"HandlerSpec({self.event_cls.__name__}.{self.phase}, abort={self.abort}, priority={self.priority})"
+        return f"HandlerSpec({self.event_cls.__name__}.{self.phase}, breaks={self.breaks}, priority={self.priority})"
 
 
 def _tag_handler(handler: F, spec: HandlerSpec) -> F:
@@ -171,19 +197,23 @@ def _tag_handler(handler: F, spec: HandlerSpec) -> F:
     return handler
 
 
-def _make_handler_decorator(event_cls: type[BaseEvent], phase: str, *, default_abort: bool) -> Callable[..., Any]:
-    """Build the decorator returned by ``Event.before`` / ``.after`` / ``.on_error``.
+def _make_handler_decorator(
+    event_cls: type[BaseEvent], phase: str, *, default_breaks: bool, flag_name: str | None = None
+) -> Callable[..., Any]:
+    """Build the decorator returned by a hook property.
 
-    Supports both forms::
+    ``flag_name`` is the public kwarg that maps to the internal ``breaks`` field
+    — ``"raises"`` for ``before``, ``"skips"`` for ``after``/``on_error``, or
+    ``None`` (no chain flag) for ``on_hook_error``/``contextmanager``. Supports::
 
-        @Created.after                         # bare; phase defaults
-        @Created.after(abort=True, priority=10) # parametric
+        @Created.after                          # bare; phase defaults
+        @Created.after(skips=True, priority=10)  # parametric
     """
 
     def decorator(*args: Any, **kwargs: Any) -> Any:
         # Bare form: the single positional arg is the handler.
         if len(args) == 1 and not kwargs and callable(args[0]):
-            spec = HandlerSpec(event_cls, phase, abort=default_abort, priority=DEFAULT_PRIORITY)
+            spec = HandlerSpec(event_cls, phase, breaks=default_breaks, priority=DEFAULT_PRIORITY)
             return _tag_handler(args[0], spec)
 
         # Parametric form: keyword args only.
@@ -192,13 +222,13 @@ def _make_handler_decorator(event_cls: type[BaseEvent], phase: str, *, default_a
                 f"{event_cls.__name__}.{phase} takes only keyword arguments "
                 f"in its parametric form; got positional {args!r}"
             )
-        abort = kwargs.pop("abort", default_abort)
+        breaks = kwargs.pop(flag_name, default_breaks) if flag_name else default_breaks
         priority = kwargs.pop("priority", DEFAULT_PRIORITY)
         if kwargs:
             raise TypeError(f"{event_cls.__name__}.{phase} got unexpected keyword arguments: {sorted(kwargs)!r}")
 
         def inner(handler: F) -> F:
-            return _tag_handler(handler, HandlerSpec(event_cls, phase, abort=abort, priority=priority))
+            return _tag_handler(handler, HandlerSpec(event_cls, phase, breaks=breaks, priority=priority))
 
         return inner
 
@@ -259,26 +289,28 @@ class EventMeta(ModelMetaclass):
 
     @property
     def before(cls) -> BeforeDecorator:  # noqa: N805  (cls is correct for a metaclass)
-        """Register a handler that runs before the wrapped method. Default
-        ``abort=True`` — a raising before-handler aborts before method execution
-        (the method is skipped)."""
-        deco = _make_handler_decorator(cast("type[BaseEvent]", cls), "before", default_abort=True)
+        """Register a handler that runs before the wrapped method. ``raises=True``
+        (default) — a failing precondition raises (skips the method, propagates
+        bare); ``raises=False`` — observed, the method still runs."""
+        deco = _make_handler_decorator(cast("type[BaseEvent]", cls), "before", default_breaks=True, flag_name="raises")
         return cast("BeforeDecorator", deco)
 
     @property
     def after(cls) -> AfterDecorator:  # noqa: N805  (cls is correct for a metaclass)
-        """Register a handler that runs after the method succeeds. Default
-        ``abort=False`` — a raising after-handler is observed, never propagated
-        (``abort=True`` only stops the remaining after-handlers)."""
-        deco = _make_handler_decorator(cast("type[BaseEvent]", cls), "after", default_abort=False)
+        """Register a handler that runs after the method succeeds. ``skips=True``
+        stops the remaining after-handlers (never propagates — the method already
+        succeeded); ``skips=False`` (default) runs them all, collecting failures."""
+        deco = _make_handler_decorator(cast("type[BaseEvent]", cls), "after", default_breaks=False, flag_name="skips")
         return cast("AfterDecorator", deco)
 
     @property
     def on_error(cls) -> OnErrorDecorator:  # noqa: N805  (cls is correct for a metaclass)
         """Register an OBSERVER that runs if the method raised. The method's
-        exception always propagates bare regardless; ``abort=True`` only stops
-        the remaining on_error handlers."""
-        deco = _make_handler_decorator(cast("type[BaseEvent]", cls), "on_error", default_abort=False)
+        exception always propagates bare regardless; ``skips=True`` only stops the
+        remaining on_error handlers; ``skips=False`` (default) runs them all."""
+        deco = _make_handler_decorator(
+            cast("type[BaseEvent]", cls), "on_error", default_breaks=False, flag_name="skips"
+        )
         return cast("OnErrorDecorator", deco)
 
     @property
@@ -287,8 +319,18 @@ class EventMeta(ModelMetaclass):
         before/after/on_error handler failures as one ``ExceptionGroup``.
         Observe-only — cannot change the caller's outcome; if it raises, that is
         logged and not re-dispatched (recursion guard). See design.md §6."""
-        deco = _make_handler_decorator(cast("type[BaseEvent]", cls), "on_hook_error", default_abort=False)
+        deco = _make_handler_decorator(cast("type[BaseEvent]", cls), "on_hook_error", default_breaks=False)
         return cast("OnHookErrorDecorator", deco)
+
+    @property
+    def contextmanager(cls) -> ContextManagerDecorator:  # noqa: N805  (cls is correct for a metaclass)
+        """Register a STRUCTURAL wrapping hook — an async generator whose single
+        ``yield`` is the method seam. Cms nest by ``priority`` (lower = outermost)
+        and unwind LIFO, like ``async with`` / middleware. Full control: a pre-
+        ``yield`` raise aborts; the method's exception is thrown in and may be
+        re-raised or mapped. See design.md §12."""
+        deco = _make_handler_decorator(cast("type[BaseEvent]", cls), "contextmanager", default_breaks=False)
+        return cast("ContextManagerDecorator", deco)
 
 
 def _resolve_wraps(wraps: str | tuple[str, ...] | None, bases: tuple[type, ...]) -> tuple[str, ...]:
@@ -322,6 +364,7 @@ class BaseEvent(BaseModel, metaclass=EventMeta):
         after: ClassVar[AfterDecorator]
         on_error: ClassVar[OnErrorDecorator]
         on_hook_error: ClassVar[OnHookErrorDecorator]
+        contextmanager: ClassVar[ContextManagerDecorator]
 
     model_config = ConfigDict(frozen=True)
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -475,11 +518,11 @@ async def _run_phase(
     collected: list[Exception],
 ) -> Exception | None:
     """Run all handlers for ``phase`` in order, appending any failure to the
-    shared ``collected`` bucket. Stops at the first ``abort=True`` failure and
-    returns it — the caller decides what that means (for ``before``: abort before
-    method execution, i.e. skip the method). ``after``/``on_error`` ignore the
-    return; their ``abort`` just stops the chain. See design.md §6."""
-    aborting: Exception | None = None
+    shared ``collected`` bucket. Stops at the first ``breaks=True`` failure and
+    returns it — the caller decides what that means. For ``before`` it propagates
+    (``raises``); ``after``/``on_error`` ignore the return, so their ``breaks``
+    (``skips``) just stops the chain. See design.md §6."""
+    breaking: Exception | None = None
     for entry in _sorted_entries(instance, event_cls, phase):
         handler = getattr(instance, entry.method_name)
         try:
@@ -487,12 +530,12 @@ async def _run_phase(
                 await handler(event, extra)
             else:
                 await handler(event)
-        except Exception as exc:  # noqa: BLE001  (collected, surfaced via abort / on_hook_error)
+        except Exception as exc:  # noqa: BLE001  (collected, surfaced via raises / on_hook_error)
             collected.append(exc)
-            if entry.spec.abort:
-                aborting = exc
+            if entry.spec.breaks:
+                breaking = exc
                 break
-    return aborting
+    return breaking
 
 
 async def _run_on_hook_error(
@@ -534,12 +577,77 @@ def _resolve_event(instance: Any, captured: type[BaseEvent]) -> type[BaseEvent]:
     return captured
 
 
-def _make_wrapper(method: Callable[..., Any], event_cls: type[BaseEvent]) -> Callable[..., Any]:
-    """Wrap a CRUD/custom method with the event lifecycle (design.md §6/§9).
+_UNSET = object()  # sentinel: distinguishes "no result yet" from a real None/falsy result
 
-    Caller path is always **bare**: only a ``before`` ``abort=True`` failure or
-    the method's own exception ever reaches the caller — never an
-    ``ExceptionGroup``. All handler failures funnel to ``on_hook_error``.
+
+async def _run_boundary(
+    instance: Any,
+    event_cls: type[BaseEvent],
+    event: BaseEvent,
+    method: Callable[..., Any],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+) -> Any:
+    """The boundary-tier lifecycle around the method: before → method →
+    on_error/after → on_hook_error (design.md §6). Caller path is always bare —
+    only a ``before`` ``raises=True`` failure or the method's own exception
+    reaches the caller; all handler failures funnel to ``on_hook_error``."""
+    collected: list[Exception] = []
+
+    # BEFORE — raises=True ⇒ skip the method, propagate bare.
+    raised = await _run_phase(instance, event_cls, "before", event, has_extra=False, collected=collected)
+    if raised is not None:
+        await _run_on_hook_error(instance, event_cls, event, collected)
+        raise raised
+
+    # METHOD — sacred: its own exception always propagates bare, never grouped.
+    try:
+        result = await method(instance, *args, **kwargs)
+    except Exception as method_exc:
+        await _run_phase(instance, event_cls, "on_error", event, method_exc, has_extra=True, collected=collected)
+        await _run_on_hook_error(instance, event_cls, event, collected)
+        raise
+
+    # AFTER — skips=True ⇒ stop the rest; after failures never propagate.
+    await _run_phase(instance, event_cls, "after", event, result, has_extra=True, collected=collected)
+    await _run_on_hook_error(instance, event_cls, event, collected)
+    return result
+
+
+async def _run_with_contextmanagers(
+    instance: Any,
+    event_cls: type[BaseEvent],
+    event: BaseEvent,
+    method: Callable[..., Any],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    cm_entries: list[RegistryEntry],
+) -> Any:
+    """Wrap the boundary lifecycle in the structural ``.contextmanager`` stack.
+
+    Cms enter in priority order (lower = outermost) and unwind LIFO — exactly an
+    ``AsyncExitStack`` of ``asynccontextmanager``-adapted generators. A pre-yield
+    raise aborts; the boundary's exception is thrown into the cms (they may map
+    it); a cm that *suppresses* the exception without a result is a usage error."""
+    result: Any = _UNSET
+    async with AsyncExitStack() as stack:
+        for entry in cm_entries:  # ascending priority = outermost entered first
+            factory = asynccontextmanager(getattr(instance, entry.method_name))
+            await stack.enter_async_context(factory(event))
+        result = await _run_boundary(instance, event_cls, event, method, args, kwargs)
+    if result is _UNSET:
+        raise RuntimeError(
+            "a .contextmanager suppressed the operation's exception without providing a result; "
+            "re-raise or map it instead (result-replacement is not supported)"
+        )
+    return result
+
+
+def _make_wrapper(method: Callable[..., Any], event_cls: type[BaseEvent]) -> Callable[..., Any]:
+    """Wrap a CRUD/custom method with the event lifecycle (design.md §6/§9/§12).
+
+    Structural ``.contextmanager`` hooks (if any) wrap the boundary-tier
+    lifecycle; otherwise the boundary runs directly.
     """
     signature = inspect.signature(method)
 
@@ -547,26 +655,10 @@ def _make_wrapper(method: Callable[..., Any], event_cls: type[BaseEvent]) -> Cal
     async def wrapped(self: Any, *args: Any, **kwargs: Any) -> Any:
         resolved = _resolve_event(self, event_cls)
         event = _build_event(resolved, signature, self, args, kwargs)
-        collected: list[Exception] = []
-
-        # BEFORE — abort=True ⇒ skip the method, propagate bare.
-        aborted = await _run_phase(self, resolved, "before", event, has_extra=False, collected=collected)
-        if aborted is not None:
-            await _run_on_hook_error(self, resolved, event, collected)
-            raise aborted
-
-        # METHOD — sacred: its own exception always propagates bare, never grouped.
-        try:
-            result = await method(self, *args, **kwargs)
-        except Exception as method_exc:
-            await _run_phase(self, resolved, "on_error", event, method_exc, has_extra=True, collected=collected)
-            await _run_on_hook_error(self, resolved, event, collected)
-            raise
-
-        # AFTER — abort=True ⇒ stop the rest; after failures never propagate.
-        await _run_phase(self, resolved, "after", event, result, has_extra=True, collected=collected)
-        await _run_on_hook_error(self, resolved, event, collected)
-        return result
+        cm_entries = _sorted_entries(self, resolved, "contextmanager")
+        if not cm_entries:
+            return await _run_boundary(self, resolved, event, method, args, kwargs)
+        return await _run_with_contextmanagers(self, resolved, event, method, args, kwargs, cm_entries)
 
     setattr(wrapped, WRAPPED_ATTR, True)
     return wrapped

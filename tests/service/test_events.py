@@ -11,7 +11,9 @@ positionally, so the name doesn't matter for dispatch — the prefix just signal
 
 from __future__ import annotations
 
+import contextlib
 import warnings
+from collections.abc import AsyncIterator
 from typing import Any, Generic, TypeVar
 
 import pytest
@@ -338,8 +340,8 @@ def test_event_metadata_mutable():
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# 4c-iii: abort / on_hook_error sink (the §6 scenario table).
-# A repo that records which methods actually ran (to prove abort skips them).
+# 4c-iii: raises / skips / on_hook_error sink (the §6 scenario table).
+# A repo that records which methods actually ran (to prove a raising before skips them).
 # ─────────────────────────────────────────────────────────────────────────
 
 
@@ -352,11 +354,11 @@ class TrackingRepo(FakeRepo):
         return entity
 
 
-async def test_before_abort_skips_method_and_propagates_bare():
-    """before(abort=True) raising → method NOT run, exception propagates BARE."""
+async def test_before_raises_skips_method_and_propagates_bare():
+    """before(raises=True) raising → method NOT run, exception propagates BARE."""
 
     class AbortService(ModelService[Order]):
-        @Created.before(abort=True)
+        @Created.before(raises=True)
         async def gate(self, _event: Created[Order]) -> None:
             raise ValueError("blocked")
 
@@ -368,11 +370,11 @@ async def test_before_abort_skips_method_and_propagates_bare():
 
 
 async def test_before_soft_failure_runs_method():
-    """before(abort=False) raising → method STILL runs; failure observed only."""
+    """before(raises=False) raising → method STILL runs; failure observed only."""
     seen: list[BaseException] = []
 
     class SoftService(ModelService[Order]):
-        @Created.before(abort=False)
+        @Created.before(raises=False)
         async def soft(self, _event: Created[Order]) -> None:
             raise RuntimeError("soft")
 
@@ -390,10 +392,10 @@ async def test_before_soft_failure_runs_method():
 
 
 async def test_after_failure_does_not_unsucceed_method():
-    """after(abort=False) raising → caller still gets the result (no raise)."""
+    """after(skips=False) raising → caller still gets the result (no raise)."""
 
     class AfterFailService(ModelService[Order]):
-        @Created.after(abort=False)
+        @Created.after(skips=False)
         async def boom(self, _event: Created[Order], _result: Order) -> None:
             raise RuntimeError("after-boom")
 
@@ -403,12 +405,12 @@ async def test_after_failure_does_not_unsucceed_method():
     assert result is order
 
 
-async def test_after_abort_stops_remaining_after_handlers():
-    """after(abort=True) raising stops later after-handlers; method still ok."""
+async def test_after_skips_stops_remaining_after_handlers():
+    """after(skips=True) raising stops later after-handlers; method still ok."""
     ran: list[str] = []
 
     class AfterAbortService(ModelService[Order]):
-        @Created.after(abort=True, priority=10)
+        @Created.after(skips=True, priority=10)
         async def first(self, _event: Created[Order], _result: Order) -> None:
             ran.append("first")
             raise RuntimeError("stop")
@@ -421,14 +423,14 @@ async def test_after_abort_stops_remaining_after_handlers():
     order = Order(id=4)
     result = await svc.add(order)  # no raise — after never propagates
     assert result is order
-    assert ran == ["first"]  # second skipped by the abort
+    assert ran == ["first"]  # second skipped by skips=True
 
 
 async def test_on_hook_error_receives_group_on_success_path():
     captured: dict[str, ExceptionGroup] = {}
 
     class SinkService(ModelService[Order]):
-        @Created.before(abort=False)
+        @Created.before(raises=False)
         async def soft(self, _event: Created[Order]) -> None:
             raise KeyError("k")
 
@@ -442,12 +444,12 @@ async def test_on_hook_error_receives_group_on_success_path():
     assert [type(e).__name__ for e in captured["errors"].exceptions] == ["KeyError"]
 
 
-async def test_on_hook_error_fires_on_abort_path_and_caller_gets_bare():
-    """before-abort path: caller gets the bare exception AND the sink observes it."""
+async def test_on_hook_error_fires_on_before_raises_and_caller_gets_bare():
+    """before-raises path: caller gets the bare exception AND the sink observes it."""
     captured: dict[str, ExceptionGroup] = {}
 
     class AbortSinkService(ModelService[Order]):
-        @Created.before(abort=True)
+        @Created.before(raises=True)
         async def gate(self, _event: Created[Order]) -> None:
             raise ValueError("blocked")
 
@@ -465,7 +467,7 @@ async def test_on_hook_error_sink_raising_is_swallowed():
     """Recursion guard: a sink that raises is swallowed; caller still gets result."""
 
     class BadSinkService(ModelService[Order]):
-        @Created.after(abort=False)
+        @Created.after(skips=False)
         async def boom(self, _event: Created[Order], _result: Order) -> None:
             raise RuntimeError("after-fail")
 
@@ -508,11 +510,11 @@ async def test_on_error_handler_failure_goes_to_sink_method_exc_stays_bare():
 # ─────────────────────────────────────────────────────────────────────────
 
 
-async def test_wildcard_before_abort_blocks_every_event():
-    """@BaseEvent.before(abort=True) aborts ALL events (add and delete here)."""
+async def test_wildcard_before_raises_blocks_every_event():
+    """@BaseEvent.before(raises=True) aborts ALL events (add and delete here)."""
 
     class GlobalGateService(ModelService[Order]):
-        @BaseEvent.before(abort=True)
+        @BaseEvent.before(raises=True)
         async def gate(self, _event: BaseEvent) -> None:
             raise PermissionError("denied")
 
@@ -528,11 +530,11 @@ async def test_wildcard_on_hook_error_catches_failures_from_all_events():
     seen: list[str] = []
 
     class GlobalSinkService(ModelService[Order]):
-        @Created.after(abort=False)
+        @Created.after(skips=False)
         async def created_fail(self, _event: Created[Order], _result: Order) -> None:
             raise RuntimeError("created-handler")
 
-        @Deleted.after(abort=False)
+        @Deleted.after(skips=False)
         async def deleted_fail(self, _event: Deleted[Order], _result: object) -> None:
             raise RuntimeError("deleted-handler")
 
@@ -810,3 +812,117 @@ async def test_mixin_declares_events_merged_and_parametrized():
     svc = OrderService(repository=FakeRepo())  # type: ignore[arg-type]
     assert svc.events.Created.__name__ == "Created[Order]"  # framework event still there
     assert svc.events.Audited.__name__ == "Audited[Order]"  # mixin event, parametrized
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# .contextmanager — structural wrapping hooks (cms). The boundary tier runs
+# inside them; cms nest by priority (LIFO), may map the method's exception, and
+# a pre-yield raise aborts the operation.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+class MethodBoomRepo(FakeRepo):
+    async def add(self, _entity: Any) -> Any:
+        raise RuntimeError("low-level")
+
+
+class DomainError(Exception):
+    pass
+
+
+async def test_contextmanager_wraps_the_boundary():
+    """before/after run INSIDE the cm; the cm brackets the whole boundary."""
+    log: list[str] = []
+
+    class WrapService(ModelService[Order]):
+        @Created.contextmanager
+        async def wrap(self, _event: Created[Order]) -> AsyncIterator[None]:
+            log.append("enter")
+            try:
+                yield
+                log.append("exit-ok")
+            finally:
+                log.append("close")
+
+        @Created.after
+        async def after(self, _event: Created[Order], _result: object) -> None:
+            log.append("after")
+
+    await WrapService(repository=FakeRepo()).add(Order(id=1))  # type: ignore[arg-type]
+    assert log == ["enter", "after", "exit-ok", "close"]
+
+
+async def test_contextmanagers_nest_lifo_by_priority():
+    log: list[str] = []
+
+    class NestService(ModelService[Order]):
+        @Created.contextmanager(priority=10)
+        async def outer(self, _event: Created[Order]) -> AsyncIterator[None]:
+            log.append("outer-enter")
+            yield
+            log.append("outer-exit")
+
+        @Created.contextmanager(priority=20)
+        async def inner(self, _event: Created[Order]) -> AsyncIterator[None]:
+            log.append("inner-enter")
+            yield
+            log.append("inner-exit")
+
+    await NestService(repository=FakeRepo()).add(Order(id=1))  # type: ignore[arg-type]
+    assert log == ["outer-enter", "inner-enter", "inner-exit", "outer-exit"]
+
+
+async def test_contextmanager_maps_method_exception():
+    """A cm may catch the method's exception and raise a different one."""
+
+    class MapService(ModelService[Order]):
+        @Created.contextmanager
+        async def mapper(self, _event: Created[Order]) -> AsyncIterator[None]:
+            try:
+                yield
+            except RuntimeError as exc:
+                raise DomainError("mapped") from exc
+
+    svc = MapService(repository=MethodBoomRepo())  # type: ignore[arg-type]
+    with pytest.raises(DomainError, match="mapped") as excinfo:
+        await svc.add(Order(id=1))
+    assert isinstance(excinfo.value.__cause__, RuntimeError)  # original chained
+
+
+async def test_contextmanager_pre_yield_raise_aborts_method():
+    """A raise before `yield` aborts: the method never runs, exception is bare."""
+
+    class AbortRepo(FakeRepo):
+        def __init__(self) -> None:
+            self.called = False
+
+        async def add(self, entity: Any) -> Any:
+            self.called = True
+            return entity
+
+    class GateService(ModelService[Order]):
+        @Created.contextmanager
+        async def gate(self, _event: Created[Order]) -> AsyncIterator[None]:
+            raise PermissionError("blocked")
+            yield  # unreachable — present only to make this an async generator
+
+    repo = AbortRepo()
+    svc = GateService(repository=repo)  # type: ignore[arg-type]
+    with pytest.raises(PermissionError, match="blocked"):
+        await svc.add(Order(id=1))
+    assert repo.called is False
+
+
+async def test_contextmanager_suppressing_without_result_is_an_error():
+    """Swallowing the method's exception without a result is unsupported and
+    raises a clear error (result-replacement is the deferred follow-up)."""
+
+    class SwallowService(ModelService[Order]):
+        @Created.contextmanager
+        async def swallow(self, _event: Created[Order]) -> AsyncIterator[None]:
+            with contextlib.suppress(RuntimeError):  # swallow, no re-raise — no result
+                yield
+
+    svc = SwallowService(repository=MethodBoomRepo())  # type: ignore[arg-type]
+    with pytest.raises(RuntimeError, match="suppressed the operation"):
+        await svc.add(Order(id=1))
