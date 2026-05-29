@@ -18,7 +18,6 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar, get_args, get_origin
 from pydantic import BaseModel
 
 from furiousapi.service.events import (
-    BaseServiceMixin,
     Created,
     Deleted,
     ModelEventsDict,
@@ -28,13 +27,6 @@ from furiousapi.service.events import (
     install_events,
     install_wrappers,
 )
-
-__all__ = [
-    "BaseService",
-    "BaseServiceMixin",
-    "ModelService",
-    "ServiceMeta",
-]
 
 if TYPE_CHECKING:
     from collections.abc import Iterable

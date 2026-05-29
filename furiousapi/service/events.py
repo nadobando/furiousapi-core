@@ -40,6 +40,8 @@ from exceptiongroup import ExceptionGroup
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic._internal._model_construction import ModelMetaclass
 
+from furiousapi.service.mixin import BaseServiceMixin
+
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
@@ -420,22 +422,6 @@ class RegistryEntry:
 
     def __repr__(self) -> str:
         return f"RegistryEntry({self.method_name!r}, {self.spec!r}, index={self.index})"
-
-
-class BaseServiceMixin:
-    """Marker base for service mixins.
-
-    A **plain class** — it carries none of ``ServiceMeta``'s machinery (no model
-    extraction, no event rebinding, no wrapper install). A mixin only
-    *contributes* handlers (and optionally an ``events`` namespace) to the
-    service that mixes it in; it is never instantiated as a service itself.
-    ``_is_contributor`` recognises it via ``issubclass`` when walking the MRO to
-    collect handlers and events.
-
-    Lives in ``events.py`` (alongside the collection machinery that keys on it)
-    rather than in ``base.py`` so the contract is co-located with its consumer.
-    ``base.py`` re-exports it for the public import path.
-    """
 
 
 def _is_contributor(klass: type, cls: type) -> bool:
