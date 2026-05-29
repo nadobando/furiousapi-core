@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar, get_args, get_origin
 from pydantic import BaseModel
 
 from furiousapi.service.events import (
+    BaseServiceMixin,
     Created,
     Deleted,
     ModelEventsDict,
@@ -27,6 +28,13 @@ from furiousapi.service.events import (
     install_events,
     install_wrappers,
 )
+
+__all__ = [
+    "BaseService",
+    "BaseServiceMixin",
+    "ModelService",
+    "ServiceMeta",
+]
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -125,20 +133,6 @@ class ServiceMeta(ABCMeta):
 
 class BaseService(metaclass=ServiceMeta):
     """Abstract root of the service hierarchy."""
-
-
-class BaseServiceMixin:
-    """Marker base for service mixins.
-
-    A **plain class** — it carries none of ``ServiceMeta``'s machinery (no model
-    extraction, no event rebinding, no wrapper install). A mixin only
-    *contributes* handlers (and optionally an ``events`` namespace) to the
-    service that mixes it in; it is never instantiated as a service itself.
-    ``ServiceMeta`` recognises it by the ``__furious_service__mixin__`` flag when
-    walking the MRO to collect handlers and events.
-    """
-
-    __furious_service__mixin__ = True
 
 
 class ModelService(BaseService, Generic[TEntity]):

@@ -422,13 +422,28 @@ class RegistryEntry:
         return f"RegistryEntry({self.method_name!r}, {self.spec!r}, index={self.index})"
 
 
+class BaseServiceMixin:
+    """Marker base for service mixins.
+
+    A **plain class** — it carries none of ``ServiceMeta``'s machinery (no model
+    extraction, no event rebinding, no wrapper install). A mixin only
+    *contributes* handlers (and optionally an ``events`` namespace) to the
+    service that mixes it in; it is never instantiated as a service itself.
+    ``_is_contributor`` recognises it via ``issubclass`` when walking the MRO to
+    collect handlers and events.
+
+    Lives in ``events.py`` (alongside the collection machinery that keys on it)
+    rather than in ``base.py`` so the contract is co-located with its consumer.
+    ``base.py`` re-exports it for the public import path.
+    """
+
+
 def _is_contributor(klass: type, cls: type) -> bool:
     """Whether ``klass`` contributes handlers/events to ``cls`` — the class being
-    built, a service class (carries its own ``_event_handlers``), or a mixin
-    (a ``BaseServiceMixin`` subclass, flagged ``__furious_service__mixin__``).
-    Plain bases like ``object``/``Generic`` are skipped. Duck-typed to avoid a
-    base.py import."""
-    return klass is cls or getattr(klass, "__furious_service__mixin__", False) or "_event_handlers" in vars(klass)
+    built, a service class (carries its own ``_event_handlers``), or a
+    ``BaseServiceMixin`` subclass. Plain bases like ``object``/``Generic`` are
+    skipped."""
+    return klass is cls or issubclass(klass, BaseServiceMixin) or "_event_handlers" in vars(klass)
 
 
 def collect_handlers(cls: type) -> dict[tuple[type, str], list[RegistryEntry]]:
