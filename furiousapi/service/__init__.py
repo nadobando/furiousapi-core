@@ -17,6 +17,7 @@ from furiousapi.service.events import (
     ModelEventsDict,
     MultipleHookErrorSinksWarning,
     Updated,
+    WrapsOnlyWiringWarning,
 )
 from furiousapi.service.mixin import BaseServiceMixin
 
@@ -33,4 +34,5 @@ __all__ = [
     "MultipleHookErrorSinksWarning",
     "ServiceMeta",
     "Updated",
+    "WrapsOnlyWiringWarning",
 ]

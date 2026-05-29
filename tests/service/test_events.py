@@ -22,13 +22,16 @@ from pydantic import BaseModel, ValidationError
 
 from furiousapi.service import (
     BaseEvent,
+    BaseService,
     BaseServiceMixin,
     Created,
     Deleted,
+    EventsDict,
     ModelEventsDict,
     ModelService,
     MultipleHookErrorSinksWarning,
     Updated,
+    WrapsOnlyWiringWarning,
 )
 
 
@@ -926,3 +929,198 @@ async def test_contextmanager_suppressing_without_result_is_an_error():
     svc = SwallowService(repository=MethodBoomRepo())  # type: ignore[arg-type]
     with pytest.raises(RuntimeError, match="suppressed the operation"):
         await svc.add(Order(id=1))
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Wiring Sources Policy (design.md §2): one method, one event.
+#   (a) wraps= only, no @emitted_by anywhere in MRO   → WrapsOnlyWiringWarning
+#   (b) @emitted_by only, no wraps=                    → silent pass
+#   (c) sources name different events (not MRO-compat) → TypeError at class creation
+#   (d) multiple @emitted_by stacked on one method     → TypeError at class creation
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_policy_a_wraps_only_warns() -> None:
+    """(a) — `wraps=` on the event but no `@emitted_by` anywhere in the MRO.
+    Wiring works; the warning prompts source-level visibility."""
+
+    class CustomEvent(BaseEvent, wraps="custom_method"):
+        pass
+
+    with pytest.warns(WrapsOnlyWiringWarning, match="custom_method"):
+
+        class MagicSvc(BaseService):
+            events = EventsDict(CustomEvent=CustomEvent)
+
+            async def custom_method(self) -> None:
+                pass
+
+    # And the wrapper still got installed.
+    assert getattr(MagicSvc.custom_method, "__furious_wrapped__", False)
+
+
+def test_policy_b_emitted_by_only_silent_pass() -> None:
+    """(b) — `@emitted_by` on the method, event has no `wraps=`. No warning,
+    no error; this is a first-class declaration style."""
+
+    class MethodAnchoredEvent(BaseEvent):  # no wraps=
+        pass
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # any warning → test fails
+
+        class MASvc(BaseService):
+            events = EventsDict(MethodAnchoredEvent=MethodAnchoredEvent)
+
+            @MethodAnchoredEvent.emitted_by
+            async def m(self) -> None:
+                pass
+
+    assert getattr(MASvc.m, "__furious_wrapped__", False)
+
+
+def test_policy_c_disagreement_raises() -> None:
+    """(c) — wraps= names A but @emitted_by names B (unrelated). Silent-lie
+    bug; must raise at class-creation time."""
+
+    class EventA(BaseEvent, wraps="m"):
+        pass
+
+    class EventB(BaseEvent):
+        pass
+
+    with pytest.raises(TypeError, match="incompatible events"):
+
+        class DisagreeSvc(BaseService):
+            events = EventsDict(EventA=EventA, EventB=EventB)
+
+            @EventB.emitted_by
+            async def m(self) -> None:
+                pass
+
+
+def test_policy_d_stacked_emitted_by_raises() -> None:
+    """(d) — multiple `@emitted_by` decorators on one method. Must raise with
+    a refactor hint pointing at the sequential-method pattern."""
+
+    class EventA(BaseEvent):
+        pass
+
+    class EventB(BaseEvent):
+        pass
+
+    with pytest.raises(TypeError, match="multiple `@emitted_by`"):
+
+        class StackedSvc(BaseService):
+            @EventA.emitted_by
+            @EventB.emitted_by
+            async def m(self) -> None:
+                pass
+
+
+def test_policy_d_message_includes_refactor_hint() -> None:
+    """The (d) error must teach the sequential refactor — not just reject."""
+
+    class A(BaseEvent):
+        pass
+
+    class B(BaseEvent):
+        pass
+
+    with pytest.raises(TypeError) as exc_info:
+
+        class _S(BaseService):
+            @A.emitted_by
+            @B.emitted_by
+            async def add(self) -> None:
+                pass
+
+    msg = str(exc_info.value)
+    assert "self.publish" in msg
+    assert ".emitted_by" in msg
+    assert "design.md" in msg
+
+
+def test_policy_sources_agree_no_warn_no_error() -> None:
+    """The framework-default pattern (and any user pattern matching it): both
+    sources name the same event. Silent pass — no warning, no error."""
+
+    class AgreeEvent(BaseEvent, wraps="m"):
+        pass
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+
+        class AgreeSvc(BaseService):
+            events = EventsDict(AgreeEvent=AgreeEvent)
+
+            @AgreeEvent.emitted_by
+            async def m(self) -> None:
+                pass
+
+    assert getattr(AgreeSvc.m, "__furious_wrapped__", False)
+
+
+def test_policy_model_service_defaults_no_warning() -> None:
+    """ModelService's defaults sit at (a)∩(b) where wraps= and @emitted_by
+    agree per-method. Defining a subclass must not emit the magic warning."""
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", WrapsOnlyWiringWarning)
+
+        class PlainSvc(ModelService[Order]):
+            pass
+
+    assert PlainSvc.__model__ is Order
+
+
+def test_policy_mro_compatible_generic_and_param() -> None:
+    """`Created` (generic) and `Created[Order]` (parametrized) are in one MRO
+    chain. The framework re-parametrizes events per-service, which means
+    `wraps=` on the generic and `@emitted_by` on the parametrized variant
+    coexist routinely — must not trigger the disagreement check."""
+
+    # The flagship case: ModelService[Order] has both — wraps= on the generic
+    # Created (inherited via __wraps_methods__) and the framework decorator
+    # `@Created.emitted_by` on `add`, re-parametrized to Created[Order] in
+    # the per-service events namespace. Construction must succeed silently.
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+
+        class _OrderSvc(ModelService[Order]):
+            pass
+
+
+def test_policy_override_without_redecorating_inherits_wiring() -> None:
+    """A subclass overrides a decorated method without re-decorating. The
+    parent's `@emitted_by` is found via the MRO walk on the parent's version
+    of the method, so wiring is preserved — case (a) does NOT warn here."""
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", WrapsOnlyWiringWarning)
+
+        class OverrideSvc(ModelService[Order]):
+            async def add(self, entity: Order) -> Order:
+                return await self.repository.add(entity)
+
+
+def test_policy_d_in_mixin_raises_at_consumer() -> None:
+    """A mixin carrying stacked decorators triggers (d) when a service uses
+    it. The error message names the mixin as the defining class."""
+
+    class A(BaseEvent):
+        pass
+
+    class B(BaseEvent):
+        pass
+
+    class StackedMixin(BaseServiceMixin):
+        @A.emitted_by
+        @B.emitted_by
+        async def m(self) -> None:
+            pass
+
+    with pytest.raises(TypeError, match=r"StackedMixin\.m"):
+
+        class _UsesMixin(StackedMixin, BaseService):
+            pass

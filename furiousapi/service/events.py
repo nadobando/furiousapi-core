@@ -57,6 +57,20 @@ class MultipleHookErrorSinksWarning(UserWarning):
     """
 
 
+class WrapsOnlyWiringWarning(UserWarning):
+    """A method is wired to an event purely via ``wraps=`` on the event class,
+    with no ``@emitted_by`` decorator anywhere in the method's MRO.
+
+    The wiring is correct, but a reader of the method's source sees no hint
+    that it emits an event — the wiring lives on a different class. Add
+    ``@Event.emitted_by`` above the method for source-level visibility. See
+    design.md §2 "Wiring Sources Policy" — case (a) "magic" wiring.
+
+    Subclass of ``UserWarning`` so users can opt out via
+    ``warnings.filterwarnings`` (or convert to an error for strict CI).
+    """
+
+
 # ──────────────────────────────────────────────────────────────────────────
 # Per-phase handler Protocols. Params are positional-only — the framework calls
 # handlers positionally, so names need not match. Handlers return ``None`` (they
@@ -764,37 +778,183 @@ class ModelEventsDict(EventsDict[T], Generic[T]):
     Deleted: type[Deleted[T]]
 
 
-def install_wrappers(cls: type) -> None:
-    """Find methods wired to events and install a firing wrapper.
+def _mro_compatible(events: set[type[BaseEvent]]) -> bool:
+    """True if all events lie in a single inheritance chain — one is a
+    subclass of all others. Empty / single-event sets are trivially compatible.
 
-    Two wiring sources, collected and deduped per method (first wins):
+    Example: ``{Created, Created[Order]}`` is compatible (the parametrized
+    generic is a subclass of its base); ``{Created, OrderRegistered}`` is not.
+    """
+    if len(events) <= 1:
+        return True
+    return any(all(issubclass(candidate, other) for other in events) for candidate in events)
+
+
+def _collapse_to_most_derived(events: set[type[BaseEvent]]) -> type[BaseEvent]:
+    """Pick the most-derived event from a compatible set. Caller must have
+    verified compatibility via ``_mro_compatible``."""
+    for candidate in events:
+        if all(issubclass(candidate, other) for other in events):
+            return candidate
+    msg = "internal: _collapse_to_most_derived called on non-compatible set"
+    raise RuntimeError(msg)
+
+
+def _format_event_set(events: set[type[BaseEvent]]) -> str:
+    return ", ".join(sorted(e.__name__ for e in events))
+
+
+def _wraps_only_msg(cls: type, method_name: str, wraps_events: set[type[BaseEvent]]) -> str:
+    suggested = sorted(wraps_events, key=lambda e: e.__name__)[0].__name__
+    return (
+        f"{cls.__qualname__}.{method_name} is wired to {_format_event_set(wraps_events)} "
+        f"via `wraps=` on the event class, but the method carries no `@emitted_by` "
+        f"decorator (nor does any ancestor's version of it). The wiring is correct, "
+        f"but reading the method's source gives no hint that it emits an event. "
+        f"Add `@{suggested}.emitted_by` above the method for source-level visibility."
+    )
+
+
+def _disagreement_msg(
+    cls: type,
+    method_name: str,
+    wraps_events: set[type[BaseEvent]],
+    emit_events: set[type[BaseEvent]],
+) -> str:
+    return (
+        f"{cls.__qualname__}.{method_name}: wired to incompatible events.\n"
+        f"  via `wraps=` on event class(es): {_format_event_set(wraps_events)}\n"
+        f"  via `@emitted_by` decorator(s):  {_format_event_set(emit_events)}\n"
+        f"These are not in the same event-class hierarchy. Either rename the event "
+        f"in the service's `events` namespace to match the decorator, or update "
+        f"the decorator to match. See design.md §2 'Wiring Sources Policy'."
+    )
+
+
+def _stacked_emits_msg(
+    cls: type,
+    defining_klass: type,
+    method_name: str,
+    emits: tuple[type[BaseEvent], ...],
+) -> str:
+    names = ", ".join(e.__name__ for e in emits)
+    where = f"{defining_klass.__qualname__}.{method_name}"
+    inherited = "" if defining_klass is cls else f" (inherited via {cls.__qualname__})"
+    return (
+        f"{where}{inherited} is tagged with multiple `@emitted_by` decorators "
+        f"({names}). Stacking `@emitted_by` is not supported — the framework "
+        f"fires exactly one event per method.\n\n"
+        f"To fire multiple events as part of one operation, factor the second "
+        f"event into its own method and call it from within this one:\n\n"
+        f"    @{emits[-1].__name__}.emitted_by\n"
+        f"    async def {method_name}(self, ...):\n"
+        f"        result = await super().{method_name}(...)\n"
+        f"        await self.publish(...)\n"
+        f"        return result\n\n"
+        f"    @{emits[0].__name__}.emitted_by\n"
+        f"    async def publish(self, ...):\n"
+        f"        pass\n\n"
+        f"See design.md §2 'Wiring Sources Policy' — case (d)."
+    )
+
+
+def _collect_wraps_claims(cls: type) -> dict[str, set[type[BaseEvent]]]:
+    """Source 1: each event in ``cls.events`` declares the methods it wraps via
+    ``__wraps_methods__``. Returns ``{method_name: {event_cls, ...}}``."""
+    claims: dict[str, set[type[BaseEvent]]] = {}
+    events = getattr(cls, "events", None)
+    if not isinstance(events, EventsDict):
+        return claims
+    for event_cls in events.values():
+        for method_name in getattr(event_cls, "__wraps_methods__", ()):
+            claims.setdefault(method_name, set()).add(event_cls)
+    return claims
+
+
+def _collect_emit_claims(cls: type) -> dict[str, set[type[BaseEvent]]]:
+    """Source 2: ``@Event.emitted_by`` across the MRO. Derived-class definitions
+    of a method mask parent versions (mirror Python attribute resolution).
+
+    Detects case (d) — stacked decorators on one method object — and raises
+    ``TypeError`` immediately. Returns ``{method_name: {event_cls}}`` (each
+    set holds exactly one event under the one-method-one-event invariant).
+    """
+    claims: dict[str, set[type[BaseEvent]]] = {}
+    for klass in cls.__mro__:
+        for attr_name, attr in vars(klass).items():
+            emits = getattr(attr, EMITS_ATTR, ())
+            if not emits:
+                continue
+            if len(emits) > 1:
+                raise TypeError(_stacked_emits_msg(cls, klass, attr_name, emits))
+            if attr_name in claims:
+                continue  # most-derived class already supplied the decoration
+            claims[attr_name] = set(emits)
+    return claims
+
+
+def _resolve_wiring(
+    cls: type,
+    wraps_claims: dict[str, set[type[BaseEvent]]],
+    emit_claims: dict[str, set[type[BaseEvent]]],
+) -> dict[str, type[BaseEvent]]:
+    """Apply the one-method-one-event policy across both source maps.
+
+    (a) wraps= only → ``WrapsOnlyWiringWarning``. (b) emitted_by only → silent.
+    (c) disagreement (not MRO-compatible) → ``TypeError``. Returns the resolved
+    ``{method_name: event_cls}`` mapping where each method's event is the
+    most-derived of the agreeing set.
+    """
+    method_to_event: dict[str, type[BaseEvent]] = {}
+    for method_name in wraps_claims.keys() | emit_claims.keys():
+        w = wraps_claims.get(method_name, set())
+        e = emit_claims.get(method_name, set())
+        all_events = w | e
+        if w and e and not _mro_compatible(all_events):
+            raise TypeError(_disagreement_msg(cls, method_name, w, e))
+        if w and not e:
+            warnings.warn(
+                _wraps_only_msg(cls, method_name, w),
+                WrapsOnlyWiringWarning,
+                stacklevel=3,
+            )
+        method_to_event[method_name] = _collapse_to_most_derived(all_events)
+    return method_to_event
+
+
+def install_wrappers(cls: type) -> None:
+    """Find methods wired to events and install a firing wrapper, applying the
+    one-method-one-event policy.
+
+    Two declaration styles:
 
     1. **Event ``wraps=``** — each event in ``cls.events`` declares which
        method(s) it wraps (``__wraps_methods__``).
-    2. **``@Event`` decorator** — a method tagged via the supplementary emitter
-       decorator carries ``__furious_emits__``.
+    2. **``@Event.emitted_by``** — a method tagged via the supplementary
+       emitter decorator carries ``__furious_emits__``.
 
-    For framework CRUD methods both sources point to the same event (they
-    agree), so the dedupe is a no-op; the decorator just makes the wiring
-    visible in the source. Idempotent — skips already-wrapped methods so
-    inherited wrappers aren't double-wrapped.
+    Per method, the four wiring-source combinations are policied:
+
+    * **(a) ``wraps=`` only, no ``@emitted_by`` anywhere in MRO** — emit
+      ``WrapsOnlyWiringWarning``. Wiring works; source-level visibility doesn't.
+    * **(b) ``@emitted_by`` only, no ``wraps=``** — silent pass.
+      Method-anchored events are a first-class style.
+    * **(c) both sources name different events** (not in same MRO chain) —
+      raise ``TypeError``. Always a developer mistake (silent-lie bug).
+    * **(d) method tagged with multiple ``@emitted_by`` decorators** — raise
+      ``TypeError`` with a refactor hint. The framework fires exactly one
+      event per method; multi-event intent is expressed via sequential method
+      calls.
+
+    The framework defaults (``Created.wraps="add"`` AND ``@Created.emitted_by``
+    on ``ModelService.add``) sit at (a)∩(b) where both sources agree — silent.
+
+    Idempotent — skips methods already wrapped (inherited wrappers aren't
+    double-wrapped). See design.md §2 'Wiring Sources Policy' for the rationale.
     """
-    method_to_event: dict[str, type[BaseEvent]] = {}
-
-    # Source 1: event `wraps=` metadata (if the class has an events namespace).
-    events = getattr(cls, "events", None)
-    if isinstance(events, EventsDict):
-        for event_cls in events.values():
-            for method_name in getattr(event_cls, "__wraps_methods__", ()):
-                method_to_event.setdefault(method_name, event_cls)
-
-    # Source 2: methods tagged with the `@Event` decorator (walk MRO so
-    # inherited decorations are found).
-    for klass in cls.__mro__:
-        for attr_name, attr in vars(klass).items():
-            for event_cls in getattr(attr, EMITS_ATTR, ()):
-                method_to_event.setdefault(attr_name, event_cls)
-
+    wraps_claims = _collect_wraps_claims(cls)
+    emit_claims = _collect_emit_claims(cls)
+    method_to_event = _resolve_wiring(cls, wraps_claims, emit_claims)
     for method_name, event_cls in method_to_event.items():
         method = getattr(cls, method_name, None)
         if method is None or getattr(method, WRAPPED_ATTR, False):
