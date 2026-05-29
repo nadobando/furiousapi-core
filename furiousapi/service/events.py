@@ -496,9 +496,33 @@ def _build_event(
 
 
 def _sorted_entries(instance: Any, event_cls: type[BaseEvent], phase: str) -> list[RegistryEntry]:
-    """Handlers for ``(event_cls, phase)``, gathered across the event's MRO (so
-    ``@Created.after`` / wildcard ``@BaseEvent.after`` fire for ``Created[Order]``)
-    and sorted by ``(priority, registration_index)`` — lower priority first."""
+    """Handlers for ``(event_cls, phase)``, gathered across the event's MRO and
+    sorted by ``(priority, registration_index)`` — lower priority first.
+
+    .. warning::
+        **Handlers fire for the event class AND every ancestor in its MRO.**
+        This is what makes cross-cutting handlers possible — a handler decorated
+        ``@BaseEvent.after`` (or ``@MyDomainEvent.after``) fires for *every*
+        descendant event the service dispatches. Concretely:
+
+        * ``@Created.after`` fires for ``Created`` AND ``Created[Order]``,
+          ``Created[User]``, etc. — desirable.
+        * ``@BaseEvent.after`` fires for **every event the service ever
+          dispatches** — ``Created``, ``Updated``, ``Deleted``, and any custom
+          events. Useful for telemetry / audit / correlation-id propagation;
+          dangerous for anything domain-specific.
+
+        Treat ``BaseEvent``-level (and any other broadly-shared ancestor)
+        registrations as **wildcard** registrations. Register them only for
+        truly cross-cutting concerns. If you need "fire for any *Created*
+        variant," use ``Created`` — not ``BaseEvent``.
+
+        Aggregation walks ``event_cls.__mro__`` once per dispatch; duplicates
+        are not possible because each handler is registered against one
+        ``(event_cls, phase)`` key in the registry. Ordering across MRO levels
+        is by ``(priority, registration_index)`` — there is *no* implicit
+        "base handlers run first" rule; if you need that, use ``priority``.
+    """
     registry = type(instance)._event_handlers  # noqa: SLF001  (framework-internal registry)
     entries: list[RegistryEntry] = []
     for ancestor in event_cls.__mro__:
