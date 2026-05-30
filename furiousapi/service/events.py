@@ -31,14 +31,18 @@ import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AsyncExitStack, asynccontextmanager
-from typing import TYPE_CHECKING, Any, ClassVar, Generic, Protocol, TypeVar, cast, overload
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Generic, Optional, Protocol, TypeVar, cast, overload
 
 # `ExceptionGroup` is the `on_hook_error` payload (annotated here, constructed by
 # `_run_on_hook_error`). The `exceptiongroup` package re-exports the builtin on
 # 3.11+ and provides the backport on 3.10, so this import is correct everywhere.
 from exceptiongroup import ExceptionGroup
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, create_model
 from pydantic._internal._model_construction import ModelMetaclass
+
+if TYPE_CHECKING:
+    from pydantic import GetCoreSchemaHandler
+    from pydantic_core import CoreSchema
 
 from furiousapi.service.mixin import BaseServiceMixin
 
@@ -745,27 +749,133 @@ def install_events(cls: type, model: type | None) -> None:
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# Partial[T] — an all-optional mirror of an entity model (design.md §4).
+#
+# `patch(id_, partial)` carries a *partial* mutation, not a full entity, so the
+# `before` seam must be able to see "what is being changed" with every field
+# optional. `Partial[T]` is that view: a distinct type (not full `T`) so the
+# annotation is honest — at `before` you hold "some fields", at `after` the full
+# entity. Realized as `Annotated[T, _PartialMarker]` so pydantic
+# substitutes the concrete model first, then the marker swaps in an all-optional
+# mirror built via `create_model`. The mirror is a PLAIN BaseModel regardless of
+# the source model's metaclass — so SQLModel / Beanie / any BaseModel subclass
+# works, because we never re-run their metaclass, only copy field annotations.
+# ──────────────────────────────────────────────────────────────────────────
+
+_PARTIAL_CACHE: dict[type, type[BaseModel]] = {}
+
+
+def make_partial(model: type[BaseModel]) -> type[BaseModel]:
+    """Build (and cache) an all-optional mirror of ``model``.
+
+    Every field becomes ``Optional[...]`` with a ``None`` default, so any subset
+    validates. A plain ``BaseModel`` — never the source's metaclass — so it is
+    safe for SQLModel / Beanie / ODM models (we copy annotations, not behavior).
+
+    ``from_attributes=True`` so a *full* model instance also validates as a
+    partial (a full entity is a partial with every field set) — this is what lets
+    ``replace(id_, entity)`` carry its full ``Order`` through the same ``partial``
+    field that ``patch`` fills with a subset.
+    """
+    cached = _PARTIAL_CACHE.get(model)
+    if cached is not None:
+        return cached
+    fields: dict[str, Any] = {
+        name: (Optional[field.annotation], None)  # noqa: UP045  (runtime value, not an annotation)
+        for name, field in model.model_fields.items()
+    }
+    partial = create_model(
+        f"Partial{model.__name__}",
+        __config__=ConfigDict(from_attributes=True),
+        **fields,
+    )
+    _PARTIAL_CACHE[model] = partial
+    return partial
+
+
+class _PartialMarker:
+    """Annotation marker: replace the annotated type's schema with its all-optional
+    mirror. Runs *after* generic substitution, so ``Partial[T]`` inside a generic
+    event resolves to ``make_partial(Order)`` once the event is bound to ``Order``."""
+
+    def __get_pydantic_core_schema__(self, source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
+        # Still generic (unbound TypeVar): no concrete model yet — accept a mapping;
+        # the real partial schema is generated when the event is parametrized.
+        if isinstance(source, TypeVar):
+            return handler(dict)
+        return handler(make_partial(source))
+
+
+if TYPE_CHECKING:
+    # Generic type alias: `Partial[Order]` reads as `Order | None` to a checker —
+    # handlers get the entity's field names/types (`event.partial.status` checks
+    # out). The runtime value is a *distinct* all-optional mirror (`make_partial`);
+    # mypy can't express "Order with every field Optional", so this is the closest
+    # faithful view. Written as `Optional[T]` (not bare `Optional`) so mypy accepts
+    # it as a parametrizable alias in annotation position.
+    Partial = Optional[T]  # noqa: UP045  (type-checker-only generic alias)
+else:
+
+    class Partial:
+        """Public helper for user-defined events: ``Partial[Order]`` →
+        ``Annotated[Order, _PartialMarker()]`` (an all-optional view of ``Order``).
+
+        Use it as a field type on a custom event whose wrapped method takes a
+        partial input, e.g.
+        ``class Patched(BaseEvent, wraps="patch"): changes: Partial[Order]``.
+        At runtime the value is a distinct all-optional mirror (see
+        ``make_partial``). The framework's own ``Updated.partial`` inlines the
+        equivalent ``Annotated[T, _PartialMarker()]`` to stay mypy-clean inside
+        the generic.
+        """
+
+        def __class_getitem__(cls, item: Any) -> Any:
+            return Annotated[item, _PartialMarker()]
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # Framework CRUD event shapes (Generic over the entity type) + their typed
 # namespace. `wraps=` is a framework-contract binding: every ModelService's
 # `add` fires Created, `patch`/`replace` fire Updated, `delete` fires Deleted.
+#
+# `ModelEvent[T]` is the entity-coupling layer between `BaseEvent` (which also
+# covers non-entity / command-like events such as `Sent`) and the concrete CRUD
+# events. It declares the `entity: T` contract once and serves as a wildcard
+# dispatch target: `@ModelEvent.after` fires for any entity-lifecycle event of
+# any model — narrower than `@BaseEvent.after` (which also catches `Sent`),
+# broader than `@Created.after`. See design.md §4.
 # ──────────────────────────────────────────────────────────────────────────
 
 
-class Created(BaseEvent, Generic[T], wraps="add"):
-    entity: T
+class ModelEvent(BaseEvent, Generic[T]):
+    """Base for events coupled to an entity model. Carries the entity as an
+    OUTPUT field (the post-operation fact), optional here so the input-built
+    event at `before` need not have it yet — concrete events tighten it."""
 
-
-class Updated(BaseEvent, Generic[T], wraps=("patch", "replace")):
-    # Fields are optional because the two wrapped methods supply different args:
-    # replace(id_, entity) fills both; patch(id_, partial) fills only id_ (the
-    # `partial` arg doesn't name-match `entity`). The authoritative post-update
-    # entity reaches after-handlers via `result`, not via this field.
-    # TODO: revisit payload construction for patch (design.md §4 input-vs-output).
-    id_: Any = None
     entity: T | None = None
 
 
-class Deleted(BaseEvent, Generic[T], wraps="delete"):
+class Created(ModelEvent[T], Generic[T], wraps="add"):
+    # add(entity) — input IS the full entity; required.
+    entity: T
+
+
+class Updated(ModelEvent[T], Generic[T], wraps=("patch", "replace")):
+    # Two wrapped methods supply different inputs, surfaced as distinct fields so
+    # the `before` seam sees the actual request (design.md §4 input-vs-output):
+    #   patch(id_, partial)   → `partial`: a Partial[T] (the requested change)
+    #   replace(id_, entity)  → `entity`:  the full replacement entity
+    # `entity` is also the authoritative post-update value for after-handlers
+    # (filled from the method result when the input didn't carry it).
+    id_: Any = None
+    # Inlined rather than `Partial[T]` so mypy reads the field as `T | None`
+    # (clean inside the generic); the marker swaps in the all-optional mirror at
+    # parametrization. `Partial[T]` is the same thing, exported for user events.
+    partial: Annotated[T, _PartialMarker()] | None = None
+
+
+class Deleted(ModelEvent[T], Generic[T], wraps="delete"):
+    # delete(entity) — input is the entity (or its id); required.
     entity: T
 
 
@@ -922,6 +1032,39 @@ def _resolve_wiring(
     return method_to_event
 
 
+def _check_required_fields(cls: type, method_name: str, method: Callable[..., Any], event_cls: type[BaseEvent]) -> None:
+    """Validate the name-match join at class-creation time (design.md §4, Path B).
+
+    ``_build_event`` fills an event's fields from the wrapped method's call
+    arguments *by name*. That join is concise but fragile: rename a parameter and
+    the event silently loses a field. So every *required* field of ``event_cls``
+    (no default / default_factory) must have a same-named parameter in ``method``'s
+    signature — checked here, once, loudly, when the class is defined.
+
+    Optional fields are deliberately exempt: a default expresses "may go unfilled"
+    (e.g. the output-only ``entity`` on ``Updated``/``Deleted``, populated from the
+    method ``result`` rather than its inputs). The check defends exactly the
+    invariant the types promise — a non-optional field that would build empty — and
+    no more. It is a pure signature comparison; it never touches values.
+    """
+    required = {name for name, field in event_cls.model_fields.items() if field.is_required()}
+    if not required:
+        return
+    params = set(inspect.signature(method).parameters) - {"self"}
+    missing = required - params
+    if missing:
+        missing_str = ", ".join(sorted(missing))
+        params_str = ", ".join(sorted(params)) or "(none)"
+        raise TypeError(
+            f"{cls.__qualname__}.{method_name} is wired to {event_cls.__name__}, but the "
+            f"event's required field(s) [{missing_str}] have no same-named parameter in the "
+            f"method signature (params: {params_str}). Event fields are filled from method "
+            f"arguments by name (design.md §4 name-match join); a required field with no "
+            f"matching parameter would build empty. Fix: rename the parameter to match the "
+            f"field, or give the field a default (making it optional)."
+        )
+
+
 def install_wrappers(cls: type) -> None:
     """Find methods wired to events and install a firing wrapper, applying the
     one-method-one-event policy.
@@ -959,4 +1102,5 @@ def install_wrappers(cls: type) -> None:
         method = getattr(cls, method_name, None)
         if method is None or getattr(method, WRAPPED_ATTR, False):
             continue
+        _check_required_fields(cls, method_name, method, event_cls)
         setattr(cls, method_name, _make_wrapper(method, event_cls))

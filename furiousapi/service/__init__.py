@@ -14,10 +14,13 @@ from furiousapi.service.events import (
     Deleted,
     EventMeta,
     EventsDict,
+    ModelEvent,
     ModelEventsDict,
     MultipleHookErrorSinksWarning,
+    Partial,
     Updated,
     WrapsOnlyWiringWarning,
+    make_partial,
 )
 from furiousapi.service.mixin import BaseServiceMixin
 
@@ -29,10 +32,13 @@ __all__ = [
     "Deleted",
     "EventMeta",
     "EventsDict",
+    "ModelEvent",
     "ModelEventsDict",
     "ModelService",
     "MultipleHookErrorSinksWarning",
+    "Partial",
     "ServiceMeta",
     "Updated",
     "WrapsOnlyWiringWarning",
+    "make_partial",
 ]
