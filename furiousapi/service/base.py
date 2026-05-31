@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from furiousapi.service.events import (
     Created,
     Deleted,
+    EventsDict,
     ModelEventsDict,
     RegistryEntry,
     Updated,
@@ -125,6 +126,13 @@ class ServiceMeta(ABCMeta):
 
 class BaseService(metaclass=ServiceMeta):
     """Abstract root of the service hierarchy."""
+
+    # Annotation only (no default): a bare BaseService has no events until a
+    # subclass declares them. Gives BaseService subclasses (non-ModelService,
+    # e.g. an infrastructure service with only custom events) a typed `events`
+    # namespace. `ModelService` narrows this to `ModelEventsDict[TEntity]` and
+    # seeds the CRUD defaults.
+    events: EventsDict[Any]
 
 
 class ModelService(BaseService, Generic[TEntity]):

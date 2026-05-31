@@ -19,7 +19,6 @@ from furiousapi.service.events import (
     MultipleHookErrorSinksWarning,
     Partial,
     Updated,
-    WrapsOnlyWiringWarning,
     make_partial,
 )
 from furiousapi.service.mixin import BaseServiceMixin
@@ -39,6 +38,5 @@ __all__ = [
     "Partial",
     "ServiceMeta",
     "Updated",
-    "WrapsOnlyWiringWarning",
     "make_partial",
 ]

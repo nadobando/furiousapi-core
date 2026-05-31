@@ -31,7 +31,6 @@ from furiousapi.service import (
     ModelService,
     MultipleHookErrorSinksWarning,
     Updated,
-    WrapsOnlyWiringWarning,
 )
 
 
@@ -214,6 +213,9 @@ class Shipped(BaseEvent, wraps="ship"):
 
 class ShippingService(ModelService[Order]):
     log: list
+    # A custom event fires only when BOTH a wiring source (@emitted_by / wraps=)
+    # AND a live namespace entry exist — so it must be declared in `events`.
+    events = ModelEventsDict(Shipped=Shipped)
 
     @Shipped.emitted_by
     async def ship(self, order_id: int, tracking: str) -> None:
@@ -933,21 +935,22 @@ async def test_contextmanager_suppressing_without_result_is_an_error():
 
 # ─────────────────────────────────────────────────────────────────────────
 # Wiring Sources Policy (design.md §2): one method, one event.
-#   (a) wraps= only, no @emitted_by anywhere in MRO   → WrapsOnlyWiringWarning
-#   (b) @emitted_by only, no wraps=                    → silent pass
+#   (a) wraps= only, no @emitted_by anywhere in MRO   → silent, first-class style
+#   (b) @emitted_by only, no wraps=                    → silent, first-class style
 #   (c) sources name different events (not MRO-compat) → TypeError at class creation
 #   (d) multiple @emitted_by stacked on one method     → TypeError at class creation
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def test_policy_a_wraps_only_warns() -> None:
-    """(a) — `wraps=` on the event but no `@emitted_by` anywhere in the MRO.
-    Wiring works; the warning prompts source-level visibility."""
+def test_policy_a_wraps_only_is_silent() -> None:
+    """(a) — `wraps=` on the event, no `@emitted_by` anywhere: a first-class,
+    silent wiring style. The wrapper is still installed."""
 
     class CustomEvent(BaseEvent, wraps="custom_method"):
         pass
 
-    with pytest.warns(WrapsOnlyWiringWarning, match="custom_method"):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # any warning → test fails
 
         class MagicSvc(BaseService):
             events = EventsDict(CustomEvent=CustomEvent)
@@ -955,7 +958,6 @@ def test_policy_a_wraps_only_warns() -> None:
             async def custom_method(self) -> None:
                 pass
 
-    # And the wrapper still got installed.
     assert getattr(MagicSvc.custom_method, "__furious_wrapped__", False)
 
 
@@ -1066,12 +1068,12 @@ def test_policy_model_service_defaults_no_warning() -> None:
     agree per-method. Defining a subclass must not emit the magic warning."""
 
     with warnings.catch_warnings():
-        warnings.simplefilter("error", WrapsOnlyWiringWarning)
+        warnings.simplefilter("error")
 
         class PlainSvc(ModelService[Order]):
             pass
 
-    assert PlainSvc.__model__ is Order
+    assert PlainSvc.__model__ is Order  # type: ignore[misc]  # class access to generic instance var (cosmetic)
 
 
 def test_policy_mro_compatible_generic_and_param() -> None:
@@ -1097,7 +1099,7 @@ def test_policy_override_without_redecorating_inherits_wiring() -> None:
     of the method, so wiring is preserved — case (a) does NOT warn here."""
 
     with warnings.catch_warnings():
-        warnings.simplefilter("error", WrapsOnlyWiringWarning)
+        warnings.simplefilter("error")
 
         class OverrideSvc(ModelService[Order]):
             async def add(self, entity: Order) -> Order:

@@ -61,20 +61,6 @@ class MultipleHookErrorSinksWarning(UserWarning):
     """
 
 
-class WrapsOnlyWiringWarning(UserWarning):
-    """A method is wired to an event purely via ``wraps=`` on the event class,
-    with no ``@emitted_by`` decorator anywhere in the method's MRO.
-
-    The wiring is correct, but a reader of the method's source sees no hint
-    that it emits an event — the wiring lives on a different class. Add
-    ``@Event.emitted_by`` above the method for source-level visibility. See
-    design.md §2 "Wiring Sources Policy" — case (a) "magic" wiring.
-
-    Subclass of ``UserWarning`` so users can opt out via
-    ``warnings.filterwarnings`` (or convert to an error for strict CI).
-    """
-
-
 # ──────────────────────────────────────────────────────────────────────────
 # Per-phase handler Protocols. Params are positional-only — the framework calls
 # handlers positionally, so names need not match. Handlers return ``None`` (they
@@ -715,14 +701,31 @@ def collect_events(cls: type) -> EventsDict:
     derived class's entry wins on a name collision. This is what lets an
     intermediate/leaf service — or a mixin — *add* events rather than shadow the
     ones it inherited.
+
+    **Extend vs. replace is signalled by the base of the leaf's own ``events``.**
+    A ``ModelEventsDict`` (the EXTEND base, ships CRUD defaults) unions normally
+    — inherited CRUD + ancestors + mixins + own. A plain ``EventsDict`` (the
+    REPLACE base, no defaults) makes the leaf authoritative over the *service*
+    chain: ancestor-service event contributions (where the CRUD baseline lives)
+    are dropped, so only the leaf's own events survive from the service side.
+    Mixin contributions are kept either way — a service that doesn't want a
+    mixin's events simply doesn't mix it in.
     """
+    own_events = vars(cls).get("events")
+    replace = isinstance(own_events, EventsDict) and not isinstance(own_events, ModelEventsDict)
+
     merged: EventsDict = EventsDict()
     for klass in reversed(cls.__mro__):
         if not _is_contributor(klass, cls):
             continue
         own = vars(klass).get("events")
-        if isinstance(own, EventsDict):
-            merged.update(own)
+        if not isinstance(own, EventsDict):
+            continue
+        # Replace mode: drop ancestor-SERVICE events (the inherited CRUD baseline
+        # and any intermediate-service events) — keep mixins and the leaf's own.
+        if replace and klass is not cls and not issubclass(klass, BaseServiceMixin):
+            continue
+        merged.update(own)
     return merged
 
 
@@ -880,12 +883,37 @@ class Deleted(ModelEvent[T], Generic[T], wraps="delete"):
 
 
 class ModelEventsDict(EventsDict[T], Generic[T]):
-    """Typed event namespace for ``ModelService``. Slots are annotation-only;
-    runtime values come from the dict (see ``EventsDict``)."""
+    """Typed event namespace for ``ModelService`` — the EXTEND base.
+
+    Ships the framework CRUD events (``Created``/``Updated``/``Deleted``) as
+    class-level defaults: instantiating ``ModelEventsDict()`` already contains
+    them, and subclassing inherits them. Pass an event by name to override a
+    default; pass ``None`` to veto it (its method runs raw — handled at wrapper
+    install). Contrast ``EventsDict`` (the REPLACE base): no defaults, so only
+    the events you list are live.
+
+    Slots are annotation-only for typing; runtime values live in the dict (see
+    ``EventsDict``). ``__default_events__`` holds the actual default classes,
+    kept explicit (not derived from the slots) so the defaults are readable and
+    overridable by subclasses.
+    """
 
     Created: type[Created[T]]
     Updated: type[Updated[T]]
     Deleted: type[Deleted[T]]
+
+    __default_events__: ClassVar[dict[str, type[BaseEvent]]] = {
+        "Created": Created,
+        "Updated": Updated,
+        "Deleted": Deleted,
+    }
+
+    def __init__(self, **events: type[BaseEvent] | None) -> None:
+        # Seed inherited defaults first, then let explicit kwargs override —
+        # including a `None` veto, which is preserved as a value so the wrapper
+        # can tell "off" (None) from "autobind" (absent).
+        merged: dict[str, type[BaseEvent] | None] = {**self.__default_events__, **events}
+        super().__init__(merged)
 
 
 def _mro_compatible(events: set[type[BaseEvent]]) -> bool:
@@ -912,17 +940,6 @@ def _collapse_to_most_derived(events: set[type[BaseEvent]]) -> type[BaseEvent]:
 
 def _format_event_set(events: set[type[BaseEvent]]) -> str:
     return ", ".join(sorted(e.__name__ for e in events))
-
-
-def _wraps_only_msg(cls: type, method_name: str, wraps_events: set[type[BaseEvent]]) -> str:
-    suggested = sorted(wraps_events, key=lambda e: e.__name__)[0].__name__
-    return (
-        f"{cls.__qualname__}.{method_name} is wired to {_format_event_set(wraps_events)} "
-        f"via `wraps=` on the event class, but the method carries no `@emitted_by` "
-        f"decorator (nor does any ancestor's version of it). The wiring is correct, "
-        f"but reading the method's source gives no hint that it emits an event. "
-        f"Add `@{suggested}.emitted_by` above the method for source-level visibility."
-    )
 
 
 def _disagreement_msg(
@@ -1010,10 +1027,10 @@ def _resolve_wiring(
 ) -> dict[str, type[BaseEvent]]:
     """Apply the one-method-one-event policy across both source maps.
 
-    (a) wraps= only → ``WrapsOnlyWiringWarning``. (b) emitted_by only → silent.
-    (c) disagreement (not MRO-compatible) → ``TypeError``. Returns the resolved
-    ``{method_name: event_cls}`` mapping where each method's event is the
-    most-derived of the agreeing set.
+    ``wraps=`` only and ``@emitted_by`` only are both first-class, silent wiring
+    styles. (c) disagreement (not MRO-compatible) → ``TypeError``. Returns the
+    resolved ``{method_name: event_cls}`` mapping where each method's event is
+    the most-derived of the agreeing set.
     """
     method_to_event: dict[str, type[BaseEvent]] = {}
     for method_name in wraps_claims.keys() | emit_claims.keys():
@@ -1022,12 +1039,6 @@ def _resolve_wiring(
         all_events = w | e
         if w and e and not _mro_compatible(all_events):
             raise TypeError(_disagreement_msg(cls, method_name, w, e))
-        if w and not e:
-            warnings.warn(
-                _wraps_only_msg(cls, method_name, w),
-                WrapsOnlyWiringWarning,
-                stacklevel=3,
-            )
         method_to_event[method_name] = _collapse_to_most_derived(all_events)
     return method_to_event
 
@@ -1065,6 +1076,38 @@ def _check_required_fields(cls: type, method_name: str, method: Callable[..., An
         )
 
 
+def _event_is_live(events_ns: Any, event_cls: type[BaseEvent]) -> bool:
+    """Whether ``event_cls`` should be emitted, given the resolved events
+    namespace — the namespace is the SINGLE source of truth for emission, for
+    every event, CRUD and custom alike (design.md §4).
+
+    An event is live iff a compatible, non-``None`` entry is present in
+    ``events_ns``. Consequences:
+
+    * A *replace* base (``EventsDict``) that omits ``Updated``/``Deleted`` → those
+      methods run raw.
+    * A *veto* (``Updated=None`` or a custom ``Shipped=None``) → that method runs
+      raw. ``None`` is how a downstream layer turns off an event an upstream layer
+      added.
+    Firing requires BOTH, ANDed: (1) a wiring source — ``wraps=`` on the event or
+    ``@emitted_by`` on the method (enforced upstream: a method only reaches here
+    via ``_resolve_wiring``), and (2) a live namespace entry (checked here). The
+    wiring source says *which* method emits the event; the namespace says
+    *whether* it is active. Neither alone fires: a wired method whose event is
+    absent/``None`` here runs raw; an event in the namespace with no wired method
+    has nothing to fire. So a **custom event must be declared in the namespace**
+    in addition to being wired.
+
+    Absent namespace (a non-service class) ⇒ live, so plain classes are untouched.
+    """
+    if not isinstance(events_ns, EventsDict):
+        return True
+    return any(
+        value is not None and isinstance(value, type) and (issubclass(value, event_cls) or issubclass(event_cls, value))
+        for value in events_ns.values()
+    )
+
+
 def install_wrappers(cls: type) -> None:
     """Find methods wired to events and install a firing wrapper, applying the
     one-method-one-event policy.
@@ -1076,12 +1119,10 @@ def install_wrappers(cls: type) -> None:
     2. **``@Event.emitted_by``** — a method tagged via the supplementary
        emitter decorator carries ``__furious_emits__``.
 
-    Per method, the four wiring-source combinations are policied:
+    Per method, the wiring-source combinations are policied:
 
-    * **(a) ``wraps=`` only, no ``@emitted_by`` anywhere in MRO** — emit
-      ``WrapsOnlyWiringWarning``. Wiring works; source-level visibility doesn't.
-    * **(b) ``@emitted_by`` only, no ``wraps=``** — silent pass.
-      Method-anchored events are a first-class style.
+    * **(a) ``wraps=`` only** and **(b) ``@emitted_by`` only** — both silent,
+      first-class styles.
     * **(c) both sources name different events** (not in same MRO chain) —
       raise ``TypeError``. Always a developer mistake (silent-lie bug).
     * **(d) method tagged with multiple ``@emitted_by`` decorators** — raise
@@ -1098,9 +1139,19 @@ def install_wrappers(cls: type) -> None:
     wraps_claims = _collect_wraps_claims(cls)
     emit_claims = _collect_emit_claims(cls)
     method_to_event = _resolve_wiring(cls, wraps_claims, emit_claims)
+    events_ns = getattr(cls, "events", None)
     for method_name, event_cls in method_to_event.items():
         method = getattr(cls, method_name, None)
-        if method is None or getattr(method, WRAPPED_ATTR, False):
+        if method is None:
             continue
-        _check_required_fields(cls, method_name, method, event_cls)
-        setattr(cls, method_name, _make_wrapper(method, event_cls))
+        already_wrapped = getattr(method, WRAPPED_ATTR, False)
+        if _event_is_live(events_ns, event_cls):
+            if already_wrapped:
+                continue  # own or inherited wrapper resolves the right event at call time
+            _check_required_fields(cls, method_name, method, event_cls)
+            setattr(cls, method_name, _make_wrapper(method, event_cls))
+        elif already_wrapped:
+            # Event removed/vetoed from the namespace ⇒ this class must NOT emit.
+            # Shadow the inherited (or own) wrapper with the raw original so the
+            # method runs without the event lifecycle.
+            setattr(cls, method_name, getattr(method, "__wrapped__", method))

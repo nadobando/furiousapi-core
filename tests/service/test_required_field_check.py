@@ -15,7 +15,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
-from furiousapi.service import BaseEvent, Deleted
+from furiousapi.service import BaseEvent, Deleted, ModelEventsDict
 from furiousapi.service.base import ModelService
 
 
@@ -52,6 +52,8 @@ def test_required_field_without_matching_param_raises() -> None:
     with pytest.raises(TypeError, match="required field"):
 
         class _Bad(OrderService):
+            events = ModelEventsDict(Greeted=Greeted)  # live in namespace → wrapping (+check) runs
+
             @Greeted.emitted_by
             async def greet(self, body: str) -> None: ...
 
@@ -66,6 +68,8 @@ async def test_required_field_with_matching_param_ok() -> None:
         addr: str
 
     class Good(OrderService):
+        events = ModelEventsDict(Greeted=Greeted)
+
         @Greeted.before
         async def _capture(self, event: Greeted) -> None:
             seen["addr"] = event.addr
@@ -88,6 +92,8 @@ async def test_optional_field_without_matching_param_ok() -> None:
         addr: str | None = None  # optional ⇒ exempt from the check
 
     class Good(OrderService):
+        events = ModelEventsDict(Greeted=Greeted)
+
         @Greeted.before
         async def _capture(self, event: Greeted) -> None:
             seen["addr"] = event.addr
